@@ -5,7 +5,6 @@ import { useAuth } from "../../context/AuthContext";
 import AttributeFormModal from "../../components/admin/AttributeFormModal";
 import ConfirmAlertModal from "../../components/admin/ConfirmAlertModal";
 import Picker from '@emoji-mart/react';
-import i18n from '@emoji-mart/data/i18n/it.json';
 
 export default function CategoryEditor() {
   const { id } = useParams<{ id: string }>();
