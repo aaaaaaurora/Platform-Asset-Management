@@ -171,7 +171,7 @@ def create_category():
 # ============================================================================
 # ENDPOINT: Consultazione di tutte le categorie
 # ============================================================================
-
+ 
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
     """

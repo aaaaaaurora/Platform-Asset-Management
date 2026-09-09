@@ -348,7 +348,7 @@ def verify_2fa():
         "campus_ids": campus_ids,
         "category_id": category_id
     }), 200
-
+ 
 # ===============================================================================
 # ENDPOINT per la creazione di un nuovo profilo Operatore (Amministratore)
 # ===============================================================================  

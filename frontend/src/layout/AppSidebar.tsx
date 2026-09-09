@@ -80,7 +80,7 @@ const getNavItemsByRole = (role?: string): NavItem[] => {
   const baseMenu: NavItem[] = [
     { icon: MapIcon, name: "Mappa Campus", path: "/map" }
   ];
-
+ 
   switch (role) {
     case "AMMINISTRATORE":
       return [
