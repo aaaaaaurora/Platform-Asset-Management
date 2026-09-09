@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import PageMeta from "../../components/common/PageMeta";
 import { useAuth } from "../../context/AuthContext";
 import CategoriesTable from "../../components/admin/CategoriesTable";
-import CategoryManagerModal from "../../components/admin/CategoryManagerModal";
 
 export interface CategoryAttribute {
   name: string;
@@ -27,22 +27,17 @@ export interface Category {
 
 export default function CategoriesManagement() {
   const { token } = useAuth();
+  const navigate = useNavigate();
   
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [successMsg, setSuccessMsg] = useState("");
-
-  // Stato Modale
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
 
   const fetchCategories = async () => {
     if (!token) return;
     setIsLoading(true);
     try {
       const baseUrl = import.meta.env.VITE_API_URL || '';
-      // Chiamata all'Asset Service tramite API Gateway
       const res = await fetch(`${baseUrl}/asset/api/categories`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -61,13 +56,11 @@ export default function CategoriesManagement() {
   }, [token]);
 
   const handleOpenCreate = () => {
-    setSelectedCategory(null); 
-    setIsModalOpen(true);
+    navigate('/admin/categories/new');
   };
 
   const handleOpenEdit = (category: Category) => {
-    setSelectedCategory(category); 
-    setIsModalOpen(true);
+    navigate(`/admin/categories/${category._id}`);
   };
 
   return (
@@ -104,28 +97,10 @@ export default function CategoriesManagement() {
         </div>
       )}
 
-      {successMsg && (
-        <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4 text-emerald-800 shadow-sm">
-          <p className="font-semibold">{successMsg}</p>
-        </div>
-      )}
-
       <CategoriesTable 
         categories={categories} 
         isLoading={isLoading} 
         onManageClick={handleOpenEdit} 
-      />
-
-      {/* Modale Unificato: Seleziona tra Creazione Base e Gestione Avanzata (Attributi) */}
-      <CategoryManagerModal
-        isOpen={isModalOpen}
-        category={selectedCategory}
-        onClose={() => setIsModalOpen(false)}
-        onRefresh={() => {
-          fetchCategories();
-          setSuccessMsg("Operazione completata con successo!");
-          setTimeout(() => setSuccessMsg(""), 4000);
-        }}
       />
     </>
   );

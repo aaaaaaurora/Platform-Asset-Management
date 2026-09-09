@@ -5,6 +5,7 @@ import CampusMap from "./pages/Dashboard/CampusMap";
 import Home from "./pages/Dashboard/Home"; 
 import OperatorsManagement from "./pages/Admin/OperatorsManagement"; 
 import CategoriesManagement from "./pages/Admin/CategoriesManagement";
+import CategoryEditor from "./pages/Admin/CategoryManager";
 import SystemLogs from "./pages/Admin/SystemLogs";
 import NewCampus from './pages/Admin/CreateCampus';
 import CampusList from './pages/Admin/CampusList';
@@ -42,6 +43,9 @@ export default function App() {
               <Route path="/dashboard" element={<Home />} />
               <Route path="/admin/operators" element={<OperatorsManagement />} />
               <Route path="/admin/categories" element={<CategoriesManagement />} />
+              {/* <-- AGGIUNTE LE NUOVE ROTTE PER L'EDITOR CATEGORIE --> */}
+              <Route path="/admin/categories/new" element={<CategoryEditor />} />
+              <Route path="/admin/categories/:id" element={<CategoryEditor />} />
               <Route path="/admin/history" element={<SystemLogs />} />
               <Route path="/admin/campus/new" element={<NewCampus />} />
               <Route path="/admin/campuses" element={<CampusList />} />
