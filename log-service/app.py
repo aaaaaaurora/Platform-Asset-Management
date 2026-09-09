@@ -142,6 +142,10 @@ class AuditLogRepository:
         campus_ids = filters.get('campus_ids')
         if campus_ids:
             query = query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
+            
+        category_ids = filters.get('category_ids')
+        if category_ids:
+            query = query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
 
         return query.order_by(AuditLog.created_at.desc())
 
@@ -161,7 +165,6 @@ class AuditLogRepository:
 
     @staticmethod
     def get_dashboard_metrics(filters: dict) -> dict:
-        # Funzione helper per applicare filtri di base in modo coerente
         def apply_base_filters(query):
             if filters.get('start_date'):
                 query = query.filter(AuditLog.created_at >= filters['start_date'])
@@ -169,6 +172,8 @@ class AuditLogRepository:
                 query = query.filter(AuditLog.created_at <= filters['end_date'])
             if filters.get('campus_ids'):
                 query = query.filter(AuditLog.payload['campus_id'].astext.in_(filters['campus_ids']))
+            if filters.get('category_ids'):
+                query = query.filter(AuditLog.payload['category_id'].astext.in_(filters['category_ids']))
             return query
 
         base_query = apply_base_filters(db.session.query(AuditLog))
@@ -245,6 +250,10 @@ class AuditLogRepository:
         if campus_ids:
             time_series_query = time_series_query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
             
+        category_ids = filters.get('category_ids')
+        if category_ids:
+            time_series_query = time_series_query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
+            
         time_series_results = time_series_query.group_by('creation_day').order_by('creation_day').all()
         
         return {
@@ -277,10 +286,13 @@ class LogService:
             'end_date': query_params.get('end_date')
         }
         
-        # MODIFICA: Split della stringa per array multiplo
         requested_campus = query_params.get('campus_id')
         if requested_campus:
             filters['campus_ids'] = [c.strip() for c in requested_campus.split(',')]
+            
+        requested_category = query_params.get('category_id')
+        if requested_category:
+            filters['category_ids'] = [c.strip() for c in requested_category.split(',')]
             
         return filters
 
@@ -296,7 +308,6 @@ class LogService:
         
         if requested_campus:
             requested_list = [c.strip() for c in requested_campus.split(',')]
-            # Filtra rimuovendo eventuali ID malevoli non appartenenti all'amministratore
             valid_campuses = [c for c in requested_list if c in user_campuses]
             if not valid_campuses:
                 filters['campus_ids'] = ["INVALID_CAMPUS"] 
@@ -440,14 +451,9 @@ class LogService:
                 "distributions": {"by_campus": {}, "by_category": {}}
             }
 
-        filters = {
-            'start_date': query_params.get('start_date'),
-            'end_date': query_params.get('end_date')
-        }
+        filters = LogService._extract_filters(query_params)
 
         requested_campus = query_params.get('campus_id')
-        
-        # MODIFICA: Split e verifica di tutti i campus richiesti
         if requested_campus:
             requested_list = [c.strip() for c in requested_campus.split(',')]
             valid_campuses = [c for c in requested_list if c in user_campuses]
@@ -474,14 +480,9 @@ class LogService:
         if not user_campuses:
             return {"time_series": []}
 
-        filters = {
-            'start_date': query_params.get('start_date'),
-            'end_date': query_params.get('end_date')
-        }
+        filters = LogService._extract_filters(query_params)
         
         requested_campus = query_params.get('campus_id')
-        
-        # MODIFICA: Split e verifica di tutti i campus richiesti
         if requested_campus:
             requested_list = [c.strip() for c in requested_campus.split(',')]
             valid_campuses = [c for c in requested_list if c in user_campuses]
