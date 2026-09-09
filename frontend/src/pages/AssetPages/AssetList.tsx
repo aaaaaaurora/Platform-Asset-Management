@@ -39,27 +39,33 @@ export default function AssetList() {
   const location = useLocation();
   const navigate = useNavigate();
   
+  const isAdmin = user?.role === 'AMMINISTRATORE';
+
   const [assets, setAssets] = useState<Asset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- STATI PER I FILTRI ---
+  // --- STATI PER I FILTRI OPERATORE (Singola Selezione) ---
   const [selectedCampus, setSelectedCampus] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
+
+  // --- STATI PER I FILTRI AMMINISTRATORE (Selezione Multipla) ---
+  const [selectedCampusesAdmin, setSelectedCampusesAdmin] = useState<string[]>([]);
+  const [selectedCategoriesAdmin, setSelectedCategoriesAdmin] = useState<string[]>([]);
+  const [isCampusDropdownOpen, setIsCampusDropdownOpen] = useState(false);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+
+  // --- STATI PER FILTRI DINAMICI ---
   const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
 
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [formData, setFormData] = useState<{ lat: number; lng: number; metadata: Record<string, any>; media_ids: string[] }>({ lat: 0, lng: 0, metadata: {}, media_ids: [] });
   
   const [preventiveNote, setPreventiveNote] = useState('');
-  
   const [isProcessing, setIsProcessing] = useState(false);
 
   const [pendingDeletes, setPendingDeletes] = useState<string[]>([]);
   const [pendingUploads, setPendingUploads] = useState<{file: File, preview: string}[]>([]);
-
-  const isAdmin = user?.role === 'AMMINISTRATORE';
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
@@ -68,75 +74,49 @@ export default function AssetList() {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 3000);
   }
-  
-  // Imposta automaticamente la categoria per l'operatore
-  useEffect(() => {
-    if (user?.role === 'OPERATORE' && user?.category_id) {
-      setSelectedCategory(user.category_id);
-    }
-  }, [user]);
 
+  // Caricamento Dati Statici
   useEffect(() => {
+    const fetchStaticData = async () => {
+      if (!token) return;
+      try {
+        const catRes = await fetch(`${import.meta.env.VITE_API_URL}/asset/api/categories`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (catRes.ok) setCategories(await catRes.json());
+
+        const campRes = await fetch(`${import.meta.env.VITE_API_URL}/geozone/api/geozones/campuses`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (campRes.ok) {
+          // Utilizziamo direttamente la risposta del backend che restituisce SOLO
+          // i campus pertinenti per l'utente loggato (Admin o Operatore).
+          // Nessun filtro lato frontend che potrebbe fallire se il token non è aggiornato.
+          const userAllowedCampuses = await campRes.json();
+          setCampuses(userAllowedCampuses);
+        }
+      } catch (error) {
+        console.error("Errore nel recupero dati statici:", error);
+      }
+    };
     fetchStaticData();
   }, [token]);
 
-  useEffect(() => {
-    fetchAssets();
-  }, [token, selectedCampus, selectedCategory, dynamicFilters, user]);
-
-  useEffect(() => {
-    if (location.state?.editCampusId && location.state?.editCampusId !== selectedCampus) {
-      setSelectedCampus(location.state.editCampusId);
-    }
-  }, [location.state]);
-
-  useEffect(() => {
-    const editAssetId = location.state?.editAssetId;
-    if (editAssetId && assets.length > 0) {
-      const assetToEdit = assets.find(a => a._id === editAssetId);
-      if (assetToEdit) {
-        openEditModal(assetToEdit);
-        navigate(location.pathname, { replace: true, state: {} });
-      }
-    }
-  }, [assets, location.state, navigate, location.pathname]);
-
-  const fetchStaticData = async () => {
-    try {
-      const catRes = await fetch(`${import.meta.env.VITE_API_URL}/asset/api/categories`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (catRes.ok) setCategories(await catRes.json());
-
-      const campRes = await fetch(`${import.meta.env.VITE_API_URL}/geozone/api/geozones/campuses`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      
-      if (campRes.ok) {
-        const allCampuses = await campRes.json();
-        const userAllowedCampuses = allCampuses.filter((c: Campus) => 
-          user?.campus_ids?.includes(c.id)
-        );
-        setCampuses(userAllowedCampuses);
-      }
-
-    } catch (error) {
-      console.error("Errore nel recupero dati statici:", error);
-    }
-  };
-
+  // Caricamento Assets in base ai Filtri (Differenziato per Ruolo)
   const fetchAssets = async () => {
+    if (!token) return;
     try {
       setLoading(true);
       
       const params = new URLSearchParams();
-      if (selectedCampus) params.append('campus_id', selectedCampus);
       
-      // Se l'utente è un operatore, ignora il filtro a tendina e forza la sua categoria
-      if (user?.role === 'OPERATORE' && user?.category_id) {
-        params.append('category_id', user.category_id);
-      } else if (selectedCategory) {
-        params.append('category_id', selectedCategory);
+      if (isAdmin) {
+        if (selectedCampusesAdmin.length > 0) params.append('campus_id', selectedCampusesAdmin.join(','));
+        if (selectedCategoriesAdmin.length > 0) params.append('category_id', selectedCategoriesAdmin.join(','));
+      } else {
+        if (selectedCampus) params.append('campus_id', selectedCampus);
+        if (user?.category_id) params.append('category_id', user.category_id);
       }
       
       Object.entries(dynamicFilters).forEach(([key, value]) => {
@@ -154,7 +134,7 @@ export default function AssetList() {
         let fetchedAssets = assetData.assets || [];
 
         // Filtro di sicurezza aggiuntivo lato frontend per operatori
-        if (user?.role === 'OPERATORE' && user?.category_id) {
+        if (!isAdmin && user?.category_id) {
           fetchedAssets = fetchedAssets.filter((a: Asset) => a.category_id === user.category_id);
         }
 
@@ -167,16 +147,51 @@ export default function AssetList() {
     }
   };
 
-  const handleCategoryFilterChange = (categoryId: string) => {
-    setSelectedCategory(categoryId);
+  useEffect(() => {
+    fetchAssets();
+  }, [token, selectedCampus, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters, user, isAdmin]);
+
+  // Gestione Reset Filtri Dinamici al cambio categoria
+  useEffect(() => {
     setDynamicFilters({});
+  }, [selectedCategoriesAdmin]);
+
+  // Gestione Navigazione da altre pagine (es. Mappa)
+  useEffect(() => {
+    if (location.state?.editCampusId) {
+      if (isAdmin) {
+        if (!selectedCampusesAdmin.includes(location.state.editCampusId)) {
+          setSelectedCampusesAdmin([location.state.editCampusId]);
+        }
+      } else {
+        if (location.state.editCampusId !== selectedCampus) {
+          setSelectedCampus(location.state.editCampusId);
+        }
+      }
+    }
+  }, [location.state, isAdmin]);
+
+  useEffect(() => {
+    const editAssetId = location.state?.editAssetId;
+    if (editAssetId && assets.length > 0) {
+      const assetToEdit = assets.find(a => a._id === editAssetId);
+      if (assetToEdit) {
+        openEditModal(assetToEdit);
+        navigate(location.pathname, { replace: true, state: {} });
+      }
+    }
+  }, [assets, location.state, navigate, location.pathname]);
+
+  const toggleCampusAdmin = (id: string) => {
+    setSelectedCampusesAdmin(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+  };
+
+  const toggleCategoryAdmin = (id: string) => {
+    setSelectedCategoriesAdmin(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
 
   const handleDynamicFilterChange = (attrName: string, value: string) => {
-    setDynamicFilters(prev => ({
-      ...prev,
-      [attrName]: value
-    }));
+    setDynamicFilters(prev => ({ ...prev, [attrName]: value }));
   };
 
   const getCategoryName = (categoryId: string) => {
@@ -198,10 +213,7 @@ export default function AssetList() {
   };
 
   const handleMetadataChange = (key: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      metadata: { ...prev.metadata, [key]: value }
-    }));
+    setFormData(prev => ({ ...prev, metadata: { ...prev.metadata, [key]: value } }));
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -235,15 +247,8 @@ export default function AssetList() {
       if (preventiveNote.trim()) {
         const noteRes = await fetch(`${import.meta.env.VITE_API_URL}/warning/maintenances`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            asset_id: selectedAsset._id,
-            tipo_intervento: 'preventiva',
-            nota_intervento: preventiveNote.trim()
-          })
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ asset_id: selectedAsset._id, tipo_intervento: 'preventiva', nota_intervento: preventiveNote.trim() })
         });
         if (!noteRes.ok) throw new Error("Errore durante la registrazione della nota di intervento.");
       }
@@ -251,10 +256,7 @@ export default function AssetList() {
       if (hasChanges) {
         if (pendingDeletes.length > 0) {
           await Promise.all(pendingDeletes.map(mediaId => 
-            fetch(`${import.meta.env.VITE_API_URL}/media/images/${mediaId}`, {
-              method: 'DELETE',
-              headers: { 'Authorization': `Bearer ${token}` }
-            })
+            fetch(`${import.meta.env.VITE_API_URL}/media/images/${mediaId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } })
           ));
         }
 
@@ -264,9 +266,7 @@ export default function AssetList() {
           uploadPayload.append('images', item.file);
 
           const res = await fetch(`${import.meta.env.VITE_API_URL}/media/images/upload`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: uploadPayload
+            method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: uploadPayload
           });
 
           if (!res.ok) throw new Error("Errore durante l'upload delle nuove immagini");
@@ -282,12 +282,7 @@ export default function AssetList() {
         };
 
         const res = await fetch(`${import.meta.env.VITE_API_URL}/asset/api/assets/${selectedAsset._id}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(payload)
+          method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify(payload)
         });
 
         if (!res.ok) {
@@ -308,12 +303,10 @@ export default function AssetList() {
 
   const confirmDelete = async () => {
     if (!selectedAsset) return;
-    
     setIsProcessing(true);
     try {
       const res = await fetch(`${import.meta.env.VITE_API_URL}/asset/api/assets/${selectedAsset._id}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
+        method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (!res.ok) throw new Error("Errore durante l'eliminazione");
@@ -329,17 +322,17 @@ export default function AssetList() {
     }
   };
 
-  const activeCategory = selectedAsset ? categories.find(c => c._id === selectedAsset.category_id) : null;
-  
-  const filterableAttributes = selectedCategory 
-    ? categories.find(c => c._id === selectedCategory)?.attributes.filter(attr => attr.filterable && attr.status !== 'unavailable') || []
+  const activeCategoryIdForFilters = isAdmin 
+    ? (selectedCategoriesAdmin.length === 1 ? selectedCategoriesAdmin[0] : null)
+    : user?.category_id;
+
+  const filterableAttributes = activeCategoryIdForFilters 
+    ? categories.find(c => c._id === activeCategoryIdForFilters)?.attributes.filter(attr => attr.filterable && attr.status !== 'unavailable') || []
     : [];
 
+  const activeCategory = selectedAsset ? categories.find(c => c._id === selectedAsset.category_id) : null;
   const hasChanges = selectedAsset ? (
-    pendingUploads.length > 0 ||
-    pendingDeletes.length > 0 ||
-    formData.lat !== selectedAsset.geometry.coordinates[1] ||
-    formData.lng !== selectedAsset.geometry.coordinates[0] ||
+    pendingUploads.length > 0 || pendingDeletes.length > 0 || formData.lat !== selectedAsset.geometry.coordinates[1] || formData.lng !== selectedAsset.geometry.coordinates[0] ||
     JSON.stringify(formData.metadata) !== JSON.stringify(selectedAsset.metadata)
   ) : false;
 
@@ -356,43 +349,124 @@ export default function AssetList() {
         </div>
       </div>
 
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Filtro Campus</label>
-            <select 
-              value={selectedCampus}
-              onChange={(e) => setSelectedCampus(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
-            >
-              <option value="">Tutti i Campus</option>
-              {campuses.map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {user?.role !== 'OPERATORE' && (
-            <div className="flex-1">
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Filtro Categoria</label>
-              <select 
-                value={selectedCategory}
-                onChange={(e) => handleCategoryFilterChange(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        
+        {isAdmin ? (
+          // VISUALE AMMINISTRATORE (Doppia Tendina Multipla)
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="relative">
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Filtro Campus
+              </label>
+              <div 
+                onClick={() => setIsCampusDropdownOpen(!isCampusDropdownOpen)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
               >
-                <option value="">Tutte le Categorie</option>
-                {categories.map(c => (
-                  <option key={c._id} value={c._id}>{c.name}</option>
+                <span className="truncate pr-2">
+                  {selectedCampusesAdmin.length === 0 
+                    ? "Tutti i Campus" 
+                    : selectedCampusesAdmin.length === 1 
+                      ? campuses.find(c => c.id === selectedCampusesAdmin[0])?.name || 'Campus Selezionato'
+                      : `${selectedCampusesAdmin.length} Campus selezionati`}
+                </span>
+                <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCampusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+
+              {isCampusDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsCampusDropdownOpen(false)}></div>
+                  <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                    <div 
+                      className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                      onClick={() => { setSelectedCampusesAdmin([]); setIsCampusDropdownOpen(false); }}
+                    >
+                      <div className="w-4 mr-3 flex-none"></div>
+                      Tutti i Campus
+                    </div>
+                    {campuses.map((campus) => (
+                      <label key={campus.id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedCampusesAdmin.includes(campus.id)}
+                          onChange={() => toggleCampusAdmin(campus.id)}
+                          className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                        />
+                        <span className="truncate">{campus.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="relative">
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Filtro Categoria
+              </label>
+              <div 
+                onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
+              >
+                <span className="truncate pr-2">
+                  {selectedCategoriesAdmin.length === 0 
+                    ? "Tutte le Categorie" 
+                    : selectedCategoriesAdmin.length === 1 
+                      ? categories.find(c => c._id === selectedCategoriesAdmin[0])?.name || 'Categoria Selezionata'
+                      : `${selectedCategoriesAdmin.length} Categorie selezionate`}
+                </span>
+                <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCategoryDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+
+              {isCategoryDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsCategoryDropdownOpen(false)}></div>
+                  <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                    <div 
+                      className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                      onClick={() => { setSelectedCategoriesAdmin([]); setIsCategoryDropdownOpen(false); }}
+                    >
+                      <div className="w-4 mr-3 flex-none"></div>
+                      Tutte le Categorie
+                    </div>
+                    {categories.map((category) => (
+                      <label key={category._id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedCategoriesAdmin.includes(category._id)}
+                          onChange={() => toggleCategoryAdmin(category._id)}
+                          className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                        />
+                        <span className="truncate">{category.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          // VISUALE OPERATORE (Singola Tendina Standard)
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1">
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Filtro Campus</label>
+              <select 
+                value={selectedCampus}
+                onChange={(e) => setSelectedCampus(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+              >
+                <option value="">Tutti i Campus</option>
+                {campuses.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {selectedCategory && filterableAttributes.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-end gap-3">
+        {filterableAttributes.length > 0 && (
+          <div className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-end gap-4">
             {filterableAttributes.map(attr => (
-              <div key={attr.name} className="w-[150px]">
+              <div key={attr.name} className="w-full sm:w-[200px]">
                 <label className="mb-1.5 block text-[11px] font-bold text-slate-500 dark:text-slate-400 capitalize tracking-wide truncate">
                   {attr.name.replace('_', ' ')}
                 </label>
@@ -401,7 +475,7 @@ export default function AssetList() {
                   <select 
                     value={dynamicFilters[attr.name] || ''}
                     onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
-                    className="w-full rounded-md border border-slate-300 bg-transparent px-2.5 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                    className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
                   >
                     <option value="">Tutti</option>
                     {attr.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -410,7 +484,7 @@ export default function AssetList() {
                    <select 
                     value={dynamicFilters[attr.name] || ''}
                     onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
-                    className="w-full rounded-md border border-slate-300 bg-transparent px-2.5 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                    className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
                   >
                     <option value="">Tutti</option>
                     <option value="true">Sì</option>
@@ -422,7 +496,7 @@ export default function AssetList() {
                     value={dynamicFilters[attr.name] || ''}
                     onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
                     placeholder="Cerca..."
-                    className="w-full rounded-md border border-slate-300 bg-transparent px-2.5 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                    className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
                   />
                 )}
               </div>

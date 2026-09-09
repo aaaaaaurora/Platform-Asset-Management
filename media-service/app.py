@@ -76,7 +76,7 @@ def process_and_compress_image(file_stream):
     try:
         img = Image.open(file_stream)
         
-        # Converte in RGB per evitare errori con PNG trasparenti salvati in JPEG 
+        # Converte in RGB per evitare errori con PNG trasparenti salvati in JPEG
         if img.mode in ("RGBA", "P"):
             img = img.convert("RGB")
             

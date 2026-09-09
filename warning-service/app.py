@@ -90,7 +90,7 @@ def publish_audit(action, entity_id, actor_id, campus_id, payload_details):
         "campus_id": str(campus_id)
     }
     
-    # Unisce i dettagli direttamente alla radice del dizionario
+    # Unisce i dettagli direttamente alla radice del dizionario 
     if payload_details:
         event_data.update(payload_details)
     

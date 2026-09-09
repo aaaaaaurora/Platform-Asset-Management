@@ -416,7 +416,7 @@ def delete_campus(campus_id):
     """
     auth = get_auth_context()
     
-    # Controllo di sicurezza rigoroso: solo l'Amministratore può eliminare 
+    # Controllo di sicurezza rigoroso: solo l'Amministratore può eliminare
     if auth.get('role') != 'AMMINISTRATORE':
         return error_response("Accesso negato. Richiesto ruolo AMMINISTRATORE.", 403)
 
