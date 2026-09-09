@@ -80,7 +80,7 @@ class UserCategory(db.Model):
 # ============================================================================
 
 def verify_google_token(token):
-    """
+    """ 
     Validazione unificata: gestisce sia l'id_token (App Mobile/Capacitor) 
     sia l'access_token (Web App/React).
     """
