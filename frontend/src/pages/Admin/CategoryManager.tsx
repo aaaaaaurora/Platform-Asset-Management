@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Category, CategoryAttribute } from "./CategoriesManagement";
+import { Category, CategoryAttribute } from "../../pages/Admin/CategoriesManagement";
 import { useAuth } from "../../context/AuthContext";
 import AttributeFormModal from "../../components/admin/AttributeFormModal";
 import ConfirmAlertModal from "../../components/admin/ConfirmAlertModal";
@@ -87,7 +87,7 @@ export default function CategoryEditor() {
 
     try {
       if (!currentCategory) {
-        // --- FLUSSO CREAZIONE NUOVA CATEGORIA ---
+        // Creazione Nuova
         const catRes = await fetch(`${baseUrl}/asset/api/categories`, {
           method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({ name: catName, description: catDesc, icon: catIcon }),
@@ -108,7 +108,7 @@ export default function CategoryEditor() {
         setTimeout(() => navigate('/admin/categories'), 1500);
 
       } else {
-        // --- FLUSSO MODIFICA CATEGORIA ESISTENTE ---
+        // Modifica Esistente
         if (hasGeneralChanges) {
           const res = await fetch(`${baseUrl}/asset/api/categories/${currentCategory._id}`, {
             method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -202,7 +202,6 @@ export default function CategoryEditor() {
     }
   };
 
-  // Gestione Modale Attributo Singolo
   const handleSaveAttribute = (attrData: CategoryAttribute) => {
     setError("");
     if (localAttributes.some(a => a.name.toLowerCase() === attrData.name.toLowerCase() && (!editingAttr || editingAttr.name !== a.name))) {
@@ -221,7 +220,6 @@ export default function CategoryEditor() {
     setLocalAttributes(prev => prev.map(a => a.name === attrName ? { ...a, status: deprecate ? 'unavailable' : 'active' } : a));
   };
 
-  // Eliminazione e Conflitti
   const handleDeleteCategory = async () => {
     if (!currentCategory) return;
     setIsSubmitting(true);
@@ -249,7 +247,7 @@ export default function CategoryEditor() {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(newAttr),
       });
       setConflictPrompt({ isOpen: false, pendingAttr: null });
-      navigate('/admin/categories'); // Forza il refresh uscendo
+      navigate('/admin/categories'); 
     } catch(err: any) { 
       setError(err.message); 
       setIsSubmitting(false); 
@@ -259,16 +257,20 @@ export default function CategoryEditor() {
   if (isLoading) return <div className="flex justify-center p-10"><div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div></div>;
 
   return (
-    <div className="max-w-5xl mx-auto pb-12">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+      
+      {/* HEADER PAGINA */}
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <button onClick={() => navigate('/admin/categories')} className="text-sm font-semibold text-slate-500 hover:text-blue-600 mb-2 transition-colors">
-            ← Torna alle Categorie
+          <button onClick={() => navigate('/admin/categories')} className="text-sm font-semibold text-slate-500 hover:text-blue-600 mb-2 transition-colors flex items-center gap-1.5">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            Torna alle Categorie
           </button>
-          <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-            {currentCategory ? `Gestione: ${currentCategory.name}` : "Nuova Categoria"}
+          <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            {currentCategory ? `Gestione Categoria: ${currentCategory.name}` : "Nuova Categoria"}
           </h2>
         </div>
+        
         {currentCategory && (
           <button onClick={() => setDeleteCategoryAlert(true)} className="px-4 py-2 text-sm font-bold text-rose-600 border border-rose-200 bg-white hover:bg-rose-50 rounded-lg shadow-sm transition-colors flex items-center gap-2">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -277,21 +279,24 @@ export default function CategoryEditor() {
         )}
       </div>
 
-      {error && <div className="mb-5 rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-700 shadow-sm">{error}</div>}
-      {successMsg && <div className="mb-5 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-700 shadow-sm">{successMsg}</div>}
+      {/* MESSAGGI DI STATO */}
+      {error && <div className="mb-6 rounded-lg border-l-4 border-rose-500 bg-rose-50 p-4 text-rose-800 shadow-sm font-medium">{error}</div>}
+      {successMsg && <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4 text-emerald-800 shadow-sm font-medium">{successMsg}</div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         
         {/* COLONNA SINISTRA: Info Generali */}
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm p-6">
-            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">Informazioni Base</h3>
+        <div className="lg:col-span-1">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Informazioni Base</h3>
+            </div>
             
-            <div className="space-y-4">
-              <div className="flex gap-4">
+            <div className="p-6 space-y-5">
+              <div className="flex gap-4 items-start">
                 <div className="relative">
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Icona</label>
-                  <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="w-12 h-[42px] flex items-center justify-center rounded-md border border-slate-300 bg-slate-50 text-xl shadow-sm hover:bg-white focus:border-blue-500 transition-colors">
+                  <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Icona</label>
+                  <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="h-11 w-12 flex items-center justify-center rounded-md border border-slate-300 bg-slate-50 text-xl shadow-sm hover:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors">
                     {catIcon}
                   </button>
                   {showEmojiPicker && (
@@ -301,14 +306,14 @@ export default function CategoryEditor() {
                   )}
                 </div>
                 <div className="flex-1">
-                  <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Nome Categoria</label>
-                  <input type="text" value={catName} onChange={e => setCatName(e.target.value)} placeholder="Es. Macchinari" className="w-full rounded-md border border-slate-300 py-2.5 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+                  <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Nome Categoria</label>
+                  <input type="text" value={catName} onChange={e => setCatName(e.target.value)} placeholder="Es. Macchinari" className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white shadow-sm" />
                 </div>
               </div>
               
               <div>
-                <label className="mb-1.5 block text-xs font-semibold text-slate-600 dark:text-slate-300">Descrizione</label>
-                <textarea rows={5} value={catDesc} onChange={e => setCatDesc(e.target.value)} placeholder="Dettagli operativi..." className="w-full rounded-md border border-slate-300 py-2.5 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+                <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Descrizione</label>
+                <textarea rows={5} value={catDesc} onChange={e => setCatDesc(e.target.value)} placeholder="Dettagli operativi o linee guida..." className="w-full rounded-md border border-slate-300 py-3 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white shadow-sm" />
               </div>
             </div>
           </div>
@@ -316,102 +321,107 @@ export default function CategoryEditor() {
 
         {/* COLONNA DESTRA: Metadati */}
         <div className="lg:col-span-2">
-          <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm p-6 min-h-[400px]">
-            <div className="flex justify-between items-center mb-6 border-b border-slate-100 dark:border-slate-700 pb-2">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden min-h-[400px]">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Tracciato Metadati</h3>
               <div className="flex gap-2">
-                <button onClick={() => setShowJsonImport(!showJsonImport)} className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 border border-slate-200 rounded-md hover:bg-slate-200 transition-colors">
+                <button onClick={() => setShowJsonImport(!showJsonImport)} className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors shadow-sm">
                   {showJsonImport ? 'Chiudi JSON' : 'Importa JSON'}
                 </button>
-                <button onClick={() => { setEditingAttr(null); setAttrFormOpen(true); }} className="px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors">
-                  + Aggiungi Singolo
+                <button onClick={() => { setEditingAttr(null); setAttrFormOpen(true); }} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 border border-blue-600 rounded-md hover:bg-blue-700 transition-colors shadow-sm">
+                  + Aggiungi attributo
                 </button>
               </div>
             </div>
 
-            {showJsonImport && (
-              <div className="mb-6 p-4 rounded-lg border border-slate-300 bg-slate-50 dark:bg-slate-900 shadow-inner animate-fade-in-up">
-                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-2">Incolla Array JSON</label>
-                <textarea 
-                  rows={6} 
-                  value={jsonText} 
-                  onChange={e => { setJsonText(e.target.value); setJsonError(""); }}
-                  placeholder="[\n  {\n    &quot;name&quot;: &quot;Materiale&quot;,\n    &quot;type&quot;: &quot;enum&quot;,\n    &quot;options&quot;: [&quot;Legno&quot;, &quot;Ferro&quot;]\n  }\n]"
-                  className="w-full font-mono text-xs p-3 rounded-md border border-slate-300 outline-none focus:border-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-green-400"
-                />
-                {jsonError && <p className="text-xs text-rose-600 font-bold mt-2">{jsonError}</p>}
-                <div className="mt-3 flex justify-end gap-2">
-                  <button onClick={() => setJsonText("")} className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-700">Svuota</button>
-                  <button onClick={handleJsonImport} className="px-4 py-1.5 text-xs font-bold text-white bg-slate-800 rounded-md hover:bg-slate-700 transition-colors">Elabora e Inserisci</button>
+            <div className="p-6">
+              {showJsonImport && (
+                <div className="mb-6 p-5 rounded-xl border border-slate-300 bg-slate-50 dark:bg-slate-900 shadow-inner animate-fade-in-up">
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Configura dinamicamente lo schema JSON</label>
+                  <textarea 
+                    rows={8} 
+                    value={jsonText} 
+                    onChange={e => { setJsonText(e.target.value); setJsonError(""); }}
+                    placeholder={`[\n  {\n    "name": "Materiale",\n    "type": "enum",\n    "options": ["Legno", "Ferro"]\n  }\n]`}
+                    className="w-full font-mono text-sm p-4 rounded-lg border border-slate-300 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-green-400 shadow-sm"
+                  />
+                  {jsonError && <p className="text-sm text-rose-600 font-bold mt-3 bg-rose-50 p-2 rounded border border-rose-100">{jsonError}</p>}
+                  <div className="mt-4 flex justify-end gap-3">
+                    <button onClick={() => setJsonText("")} className="px-4 py-2 text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors">Svuota</button>
+                    <button onClick={handleJsonImport} className="px-5 py-2 text-sm font-bold text-white bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors shadow-sm">Elabora e Inserisci</button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {localAttributes.length === 0 ? (
-              <div className="text-center py-16 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50 dark:bg-slate-900 dark:border-slate-700">
-                <p className="text-sm font-medium text-slate-500">Nessun attributo configurato.</p>
-                <p className="text-xs text-slate-400 mt-1">Puoi aggiungerli singolarmente o incollarli da un file JSON.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {localAttributes.map((attr) => {
-                  const originalDbAttr = currentCategory?.attributes.find(a => a.name === (attr as any)._originalName);
-                  const isDeprecatedInDb = originalDbAttr?.status === 'unavailable';
-                  const isPendingDeletion = !isDeprecatedInDb && attr.status === 'unavailable';
-                  const isEffectivelyDeprecated = isDeprecatedInDb && attr.status === 'unavailable';
-                  const isPendingRestore = isDeprecatedInDb && attr.status === 'active';
-                  const isDimmed = isEffectivelyDeprecated || isPendingDeletion;
+              {localAttributes.length === 0 ? (
+                <div className="text-center py-16 px-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50/50 dark:bg-slate-900/50 dark:border-slate-700">
+                  <div className="mx-auto h-12 w-12 text-slate-300 mb-3">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                  </div>
+                  <p className="text-sm font-bold text-slate-600 dark:text-slate-400">Nessun attributo configurato.</p>
+                  <p className="text-sm text-slate-500 mt-1">Aggiungi manualmente i campi o importa uno schema JSON.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {localAttributes.map((attr) => {
+                    const originalDbAttr = currentCategory?.attributes.find(a => a.name === (attr as any)._originalName);
+                    const isDeprecatedInDb = originalDbAttr?.status === 'unavailable';
+                    const isPendingDeletion = !isDeprecatedInDb && attr.status === 'unavailable';
+                    const isEffectivelyDeprecated = isDeprecatedInDb && attr.status === 'unavailable';
+                    const isPendingRestore = isDeprecatedInDb && attr.status === 'active';
+                    const isDimmed = isEffectivelyDeprecated || isPendingDeletion;
 
-                  return (
-                    <div key={attr.name} className={`flex items-center justify-between p-3 rounded-lg border shadow-sm transition-all ${isDimmed ? 'bg-slate-50 border-slate-200 opacity-60 dark:bg-slate-800' : 'bg-white border-slate-200 hover:border-blue-200'}`}>
-                      <div className={isDimmed ? 'line-through text-slate-400' : ''}>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-sm text-slate-800">{attr.name}</span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 uppercase font-bold">{attr.type}</span>
-                          {attr.required && <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200 uppercase font-bold">Obbligatorio</span>}
-                          
-                          {isPendingDeletion && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-300 font-bold ml-2">IN ELIMINAZIONE</span>}
-                          {isEffectivelyDeprecated && <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300 font-bold ml-2">DEPRECATO</span>}
-                          {isPendingRestore && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-300 font-bold ml-2">IN RIPRISTINO</span>}
+                    return (
+                      <div key={attr.name} className={`flex items-center justify-between p-4 rounded-xl border shadow-sm transition-all ${isDimmed ? 'bg-slate-50 border-slate-200 opacity-60 dark:bg-slate-800' : 'bg-white border-slate-200 hover:border-blue-300'}`}>
+                        <div className={isDimmed ? 'line-through text-slate-400' : ''}>
+                          <div className="flex items-center gap-2.5">
+                            <span className="font-bold text-slate-800">{attr.name}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 uppercase font-bold tracking-wide">{attr.type}</span>
+                            {attr.required && <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 border border-rose-200 uppercase font-bold tracking-wide">Obbligatorio</span>}
+                            
+                            {isPendingDeletion && <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-300 font-bold ml-2">IN ELIMINAZIONE</span>}
+                            {isEffectivelyDeprecated && <span className="text-[10px] px-2 py-0.5 rounded bg-rose-100 text-rose-700 border border-rose-300 font-bold ml-2">DEPRECATO</span>}
+                            {isPendingRestore && <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-300 font-bold ml-2">IN RIPRISTINO</span>}
+                          </div>
+                          {attr.type === 'enum' && <p className="text-xs mt-1.5 text-slate-500 truncate max-w-md font-medium">Opzioni: {attr.options.join(', ')}</p>}
                         </div>
-                        {attr.type === 'enum' && <p className="text-xs mt-1 text-slate-500 truncate max-w-sm">[{attr.options.join(', ')}]</p>}
+                        
+                        <div className="flex items-center gap-4">
+                          {isEffectivelyDeprecated ? (
+                              <button onClick={() => setAttrDeprecationStatus(attr.name, false)} className="text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors">Ripristina</button>
+                          ) : isPendingDeletion ? (
+                              <button onClick={() => setAttrDeprecationStatus(attr.name, false)} className="text-xs font-bold text-slate-600 hover:text-slate-900 transition-colors">Annulla Eliminazione</button>
+                          ) : isPendingRestore ? (
+                              <button onClick={() => setAttrDeprecationStatus(attr.name, true)} className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors">Annulla Ripristino</button>
+                          ) : (
+                            <>
+                              <button onClick={() => { setEditingAttr(attr); setAttrFormOpen(true); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors">Modifica</button>
+                              {!currentCategory || !(attr as any)._originalName ? (
+                                <button onClick={() => setLocalAttributes(prev => prev.filter(a => a.name !== attr.name))} className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors">Rimuovi</button>
+                              ) : (
+                                <button onClick={() => setAttrDeprecationStatus(attr.name, true)} className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors">Elimina</button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
-                      
-                      <div className="flex items-center gap-3">
-                        {isEffectivelyDeprecated ? (
-                            <button onClick={() => setAttrDeprecationStatus(attr.name, false)} className="text-xs font-bold text-slate-600 hover:text-slate-800">Ripristina</button>
-                        ) : isPendingDeletion ? (
-                            <button onClick={() => setAttrDeprecationStatus(attr.name, false)} className="text-xs font-bold text-slate-600 hover:text-slate-800">Annulla Eliminazione</button>
-                        ) : isPendingRestore ? (
-                            <button onClick={() => setAttrDeprecationStatus(attr.name, true)} className="text-xs font-bold text-rose-600 hover:text-rose-800">Annulla Ripristino</button>
-                        ) : (
-                          <>
-                            <button onClick={() => { setEditingAttr(attr); setAttrFormOpen(true); }} className="text-xs font-bold text-blue-600 hover:text-blue-800">Modifica</button>
-                            {!currentCategory || !(attr as any)._originalName ? (
-                              <button onClick={() => setLocalAttributes(prev => prev.filter(a => a.name !== attr.name))} className="text-xs font-bold text-rose-600 hover:text-rose-800">Rimuovi</button>
-                            ) : (
-                              <button onClick={() => setAttrDeprecationStatus(attr.name, true)} className="text-xs font-bold text-rose-600 hover:text-rose-800">Elimina</button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-          
-          {/* BARRA AZIONI FINALI */}
-          <div className="mt-6 flex justify-end gap-3">
-            <button onClick={() => navigate('/admin/categories')} disabled={isSubmitting} className="px-6 py-2.5 text-sm font-bold text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition-colors disabled:opacity-50">
-              Annulla
-            </button>
-            <button onClick={handleSaveAll} disabled={isSubmitting || !hasChanges} className="px-8 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-md transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:bg-slate-400">
-              {isSubmitting ? "Salvataggio in corso..." : (currentCategory ? "Salva Modifiche" : "Crea Categoria Definitiva")}
-            </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
+      </div>
+
+      {/* FOOTER AZIONI (Barra inferiore larga) */}
+      <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-4">
+        <button onClick={() => navigate('/admin/categories')} disabled={isSubmitting} className="px-6 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition-colors disabled:opacity-50">
+          Annulla Modifiche
+        </button>
+        <button onClick={handleSaveAll} disabled={isSubmitting || !hasChanges} className="px-8 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-md transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:bg-slate-400">
+          {isSubmitting ? "Salvataggio in corso..." : (currentCategory ? "Salva Categoria" : "Crea Categoria Definitiva")}
+        </button>
       </div>
 
       <AttributeFormModal isOpen={attrFormOpen} initialData={editingAttr} onClose={() => setAttrFormOpen(false)} onSave={handleSaveAttribute} isSubmitting={false} />
