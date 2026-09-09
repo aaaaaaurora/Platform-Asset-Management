@@ -6,7 +6,7 @@ import time
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import func
+from sqlalchemy import func, case
 from sqlalchemy.exc import SQLAlchemyError
 from marshmallow import Schema, fields, INCLUDE, ValidationError
 import csv
@@ -186,7 +186,7 @@ class AuditLogRepository:
 
         # Variabile per il calcolo differenziale dinamico netto
         net_asset_calc = func.sum(
-            func.case(
+            case(
                 (AuditLog.action == 'ASSET_CREATED', 1),
                 (AuditLog.action == 'ASSET_DELETED', -1),
                 else_=0
@@ -224,7 +224,7 @@ class AuditLogRepository:
     @staticmethod
     def get_dashboard_charts(filters: dict) -> dict:
         net_asset_calc = func.sum(
-            func.case(
+            case(
                 (AuditLog.action == 'ASSET_CREATED', 1),
                 (AuditLog.action == 'ASSET_DELETED', -1),
                 else_=0

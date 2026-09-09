@@ -11,7 +11,7 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
 
   const hasData = seriesData.length > 0 && seriesData.some((val) => val > 0);
 
-  // Calcolo dinamico dell'altezza: garantisce leggibilità su mobile anche con 20 campus.
+  // Calcolo dinamico dell'altezza: garantisce leggibilità su mobile anche con 20 campus
   // 55px per ogni barra, con un minimo garantito di 300px.
   const dynamicHeight = Math.max(300, labels.length * 55);
 
