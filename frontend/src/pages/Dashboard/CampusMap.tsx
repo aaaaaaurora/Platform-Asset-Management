@@ -17,6 +17,8 @@ export default function CampusMap() {
 
   const [viewState, setViewState] = useState({ longitude: 14.7900, latitude: 40.7700, zoom: 15, pitch: 45, bearing: 0 });
   const [campuses, setCampuses] = useState<any[]>([]);
+  
+  // MODIFICA: Inizializzato a vuoto per la selezione di default
   const [selectedCampus, setSelectedCampus] = useState<string>('');
   
   const [categories, setCategories] = useState<any[]>([]);
@@ -34,16 +36,22 @@ export default function CampusMap() {
         (position) => {
           const coords = { longitude: position.coords.longitude, latitude: position.coords.latitude };
           setUserLocation(coords);
-          setViewState(prev => ({ ...prev, ...coords }));
+          
+          // Se non è stato imposto un campus specifico dal router, vai alla posizione utente
+          if (!focusCampusId) {
+            setViewState(prev => ({ ...prev, ...coords }));
+          }
         },
         (error) => {
           console.warn("Geolocalizzazione negata o fallita. Uso coordinate di default.", error);
-          const defaultCoords = { longitude: 14.7900, latitude: 40.7700 };
-          setViewState(prev => ({ ...prev, ...defaultCoords }));
+          if (!focusCampusId) {
+            const defaultCoords = { longitude: 14.7900, latitude: 40.7700 };
+            setViewState(prev => ({ ...prev, ...defaultCoords }));
+          }
         }
       );
     }
-  }, []);
+  }, [focusCampusId]);
 
   useEffect(() => {
     if (user) {
@@ -58,8 +66,9 @@ export default function CampusMap() {
           
           if (focusCampusId && realCampuses.some((c: any) => c.id === focusCampusId)) {
             setSelectedCampus(focusCampusId);
-          } else if (realCampuses.length > 0) {
-            setSelectedCampus(realCampuses[0].id);
+          } else {
+            // MODIFICA: Assicura che si parta dalla voce vuota, non dal primo array
+            setSelectedCampus('');
           }
         } catch (error) { console.error("Errore recupero campus:", error); }
       };
@@ -109,7 +118,13 @@ export default function CampusMap() {
         setAssets(fetchedAssets);
       } catch (error) { console.error("Errore recupero asset:", error); }
     };
-    if (selectedCampus) fetchAssets();
+    
+    // MODIFICA: Effettua il fetch degli asset solo se è stato effettivamente selezionato un campus
+    if (selectedCampus) {
+      fetchAssets();
+    } else {
+      setAssets([]); // Se torno su "Seleziona...", svuoto la mappa
+    }
   }, [selectedCampus, token, user]);
 
   useEffect(() => {
@@ -196,6 +211,8 @@ export default function CampusMap() {
                 onChange={(e) => { setSelectedCampus(e.target.value); setSelectedAsset(null); }}
                 className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
               >
+                {/* MODIFICA: Voce di default */}
+                <option value="" disabled>Seleziona un campus...</option>
                 {campuses.map(campus => (
                   <option key={campus.id} value={campus.id}>
                     {campus.name}
@@ -271,7 +288,6 @@ export default function CampusMap() {
                   <h3 className="font-bold text-xl text-black dark:text-white">
                     Dettagli Asset
                   </h3>
-                  {/* Controllo incrociato: ruolo, territorio e pertinenza della categoria */}
                   {user?.role === 'OPERATORE' && user?.campus_ids?.includes(selectedAsset.campus_id) && user?.category_id === selectedAsset.category_id && (
                     <button 
                       onClick={() => navigate('/assets/list', { state: { editAssetId: selectedAsset._id, editCampusId: selectedAsset.campus_id } })}

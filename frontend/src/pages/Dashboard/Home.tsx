@@ -90,62 +90,73 @@ export default function Home() {
         description="Pannello di controllo riepilogativo per la gestione degli asset."
       />
       
-      {/* HEADER & FILTRO */}
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+      {/* HEADER */}
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             {greeting}, {displayFirstName || 'Amministratore'}!
           </h2>
-          <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+          <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">
             Ecco una panoramica aggiornata in tempo reale sullo stato dei tuoi campus.
           </p>
         </div>
-        
-        {/* DROPDOWN CUSTOM SELEZIONE MULTIPLA */}
-        <div className="relative w-full sm:w-72 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-3">
-          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-1 mb-1.5">
-            Filtro Spaziale
-          </label>
-          <div 
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer flex justify-between items-center"
-          >
-            <span className="truncate pr-2">
-              {selectedCampuses.length === 0 
-                ? "🌍 Tutti i Campus" 
-                : selectedCampuses.length === 1 
-                  ? `📍 ${availableCampuses.find(c => c.id === selectedCampuses[0])?.name || 'Campus Selezionato'}`
-                  : `🌍 ${selectedCampuses.length} Campus selezionati`}
-            </span>
-            <svg className={`w-4 h-4 text-slate-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-          </div>
+      </div>
 
-          {isDropdownOpen && (
-            <>
-              {/* Overlay invisibile per chiudere al click fuori */}
-              <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
-              
-              <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto overflow-x-hidden animate-fade-in-up">
-                <div 
-                  className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
-                  onClick={() => { setSelectedCampuses([]); setIsDropdownOpen(false); }}
-                >
-                  🌍 Tutti i Campus (Azzera filtri)
+      {/* BLOCCO FILTRO CAMPUS ORIZZONTALE */}
+      <div className="mb-8 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex flex-col sm:flex-row gap-4 relative">
+          <div className="flex-1 relative">
+            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Filtro Campus
+            </label>
+            
+            {/* Pulsante Dropdown */}
+            <div 
+              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
+            >
+              <span className="truncate pr-2">
+                {selectedCampuses.length === 0 
+                  ? "Tutti i Campus" 
+                  : selectedCampuses.length === 1 
+                    ? availableCampuses.find(c => c.id === selectedCampuses[0])?.name || 'Campus Selezionato'
+                    : `${selectedCampuses.length} Campus selezionati`}
+              </span>
+              <svg className={`w-4 h-4 text-slate-500 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+
+            {/* Menu Tendina */}
+            {isDropdownOpen && (
+              <>
+                {/* Overlay invisibile per chiudere al click fuori */}
+                <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
+                
+                <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                  {/* Opzione globale (Altezza fissa h-12 per coerenza) */}
+                  <div 
+                    className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                    onClick={() => { setSelectedCampuses([]); setIsDropdownOpen(false); }}
+                  >
+                    <div className="w-4 mr-3 flex-none"></div> {/* Spaziatore invisibile per allineare col testo sotto */}
+                    Tutti i Campus (Azzera filtri)
+                  </div>
+                  
+                  {/* Lista Campus con Checkbox (Altezza fissa h-12) */}
+                  {availableCampuses.map((campus) => (
+                    <label key={campus.id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedCampuses.includes(campus.id)}
+                        onChange={() => toggleCampus(campus.id)}
+                        className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                      />
+                      <span className="truncate">{campus.name}</span>
+                    </label>
+                  ))}
                 </div>
-                {availableCampuses.map((campus) => (
-                  <label key={campus.id} className="flex items-center px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                    <input
-                      type="checkbox"
-                      checked={selectedCampuses.includes(campus.id)}
-                      onChange={() => toggleCampus(campus.id)}
-                      className="mr-3 h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
-                    />
-                    <span className="truncate">{campus.name}</span>
-                  </label>
-                ))}
-              </div>
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
