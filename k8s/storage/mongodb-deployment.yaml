@@ -10,7 +10,7 @@ spec:
   resources:
     requests:
       storage: 5Gi
-
+ 
 ---
 # --- 2. IL DATABASE (DEPLOYMENT) ---
 apiVersion: apps/v1

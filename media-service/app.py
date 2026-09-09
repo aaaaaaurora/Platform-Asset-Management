@@ -11,7 +11,7 @@ from minio.error import S3Error
 from PIL import Image, UnidentifiedImageError
 from werkzeug.utils import secure_filename
 from shared_utils.messaging import RabbitMQManager
-
+ 
 app = Flask(__name__)
 
 # ==========================================

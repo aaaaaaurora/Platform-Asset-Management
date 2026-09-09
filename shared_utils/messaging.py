@@ -10,7 +10,7 @@ class RabbitMQManager:
     """
     def __init__(self, rabbitmq_url=None):
         self.rabbitmq_url = rabbitmq_url or os.getenv('RABBITMQ_URL', 'amqp://guest:guest@rabbitmq-service:5672/')
-
+ 
     def get_connection(self):
         """
         Effettua la connessione a RabbitMQ con un meccanismo di retry (Backoff).
