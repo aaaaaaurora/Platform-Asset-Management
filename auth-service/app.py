@@ -79,31 +79,47 @@ class UserCategory(db.Model):
 # FUNZIONI DI UTILITA'
 # ============================================================================
 
-def verify_google_token(access_token):
+def verify_google_token(token):
     """
-    Validazione del token tramite chiamata diretta all'API userinfo di Google.
-    Compatibile con l'access_token generato dai bottoni React personalizzati.
+    Validazione unificata: gestisce sia l'id_token (App Mobile/Capacitor) 
+    sia l'access_token (Web App/React).
     """
-    if not access_token or access_token == "invalid":
+    if not token or token == "invalid":
         return None
         
-    try:
-        # Chiediamo a Google i dati dell'utente usando l'access token
-        google_api_url = f"https://www.googleapis.com/oauth2/v3/userinfo?access_token={access_token}"
-        response = requests.get(google_api_url)
-        
-        if response.status_code != 200:
-            print(f"ERRORE GOOGLE API: {response.text}", flush=True)
+    # Un id_token (JWT) è sempre composto da 3 parti separate da punti.
+    is_jwt = len(token.split('.')) == 3
+
+    if is_jwt:
+        # 1. FLUSSO MOBILE: Validazione id_token
+        try:
+            idinfo = id_token.verify_oauth2_token(
+                token, 
+                google_requests.Request(), 
+                app.config.get('GOOGLE_CLIENT_ID', GOOGLE_CLIENT_ID)
+            )
+            # Verifica opzionale dell'audience (Client ID Android)
+            if idinfo['aud'] not in [GOOGLE_CLIENT_ID, 'INSERISCI_QUI_IL_TUO_CLIENT_ID_ANDROID']:
+                print("Audience non riconosciuta.", flush=True)
+                return None
+            return idinfo
+        except ValueError as e:
+            print(f"Errore validazione id_token mobile: {e}", flush=True)
             return None
+    else:
+        # 2. FLUSSO WEB: Validazione access_token
+        try:
+            google_api_url = f"https://www.googleapis.com/oauth2/v3/userinfo?access_token={token}"
+            response = requests.get(google_api_url)
             
-        idinfo = response.json()
-        
-        # L'API restituisce un dizionario con 'sub' (Google ID), 'email', 'given_name', 'family_name'
-        return idinfo
-        
-    except Exception as e:
-        print(f"ERRORE CRITICO VERIFICA TOKEN: {e}", flush=True)
-        return None
+            if response.status_code != 200:
+                print(f"ERRORE GOOGLE API (WEB): {response.text}", flush=True)
+                return None
+                
+            return response.json()
+        except Exception as e:
+            print(f"ERRORE CRITICO VERIFICA TOKEN WEB: {e}", flush=True)
+            return None
 
 def publish_audit_event(action, actor_id, extra_data=None):
     """
