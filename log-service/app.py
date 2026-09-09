@@ -187,7 +187,8 @@ class AuditLogRepository:
         resolved_warnings = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
         tickets_count = max(0, created_warnings - resolved_warnings) 
         
-        interventions_count = base_query.filter(AuditLog.action.in_(['LOG_MAINTENANCE', 'RESOLVE_WARNING'])).count() 
+        # MODIFICA: Conteggio solo delle segnalazioni chiuse (RESOLVE_WARNING)
+        interventions_count = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count() 
 
         # Variabile per il calcolo differenziale dinamico netto
         net_asset_calc = func.sum(

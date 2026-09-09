@@ -11,13 +11,11 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
 
   const hasData = seriesData.length > 0 && seriesData.some((val) => val > 0);
 
-  // Calcolo dinamico dell'altezza: garantisce leggibilità su mobile anche con 20 campus
-  // 55px per ogni barra, con un minimo garantito di 300px.
   const dynamicHeight = Math.max(300, labels.length * 55);
 
   const options: ApexOptions = {
     chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'inherit' },
-    colors: ['#10B981'], // Tailwind Emerald 500
+    colors: ['#10B981'], 
     plotOptions: {
       bar: {
         horizontal: true,
@@ -37,7 +35,10 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
       labels: { style: { colors: '#64748B', fontWeight: 600 } }
     },
     yaxis: {
-      labels: { style: { colors: '#475569', fontSize: '13px', fontWeight: 600 } }
+      labels: { 
+        maxWidth: 350, // Permette di leggere i nomi lunghi dei campus senza tagliarli troppo presto
+        style: { colors: '#475569', fontSize: '13px', fontWeight: 600 } 
+      }
     },
     grid: {
       borderColor: '#E2E8F0',

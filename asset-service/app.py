@@ -1150,7 +1150,7 @@ def process_system_events(ch, method, properties, body):
                     assets_col.delete_one({"_id": ObjectId(asset_id)})
                     
                     # 3. Notifica agli altri servizi usando direttamente mq_manager
-                    # (perché siamo in un thread senza contesto di richiesta HTTP)
+                    # (perché siamo in un thread senza contesto di richiesta HTTP) 
                     asset_name = extract_asset_name(asset_id)
                     category = categories_col.find_one({"_id": ObjectId(category_id)}) if category_id else None
                     category_name = category.get('name', 'Sconosciuta') if category else 'Sconosciuta'

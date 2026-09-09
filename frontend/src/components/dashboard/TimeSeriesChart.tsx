@@ -23,7 +23,7 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
       fontFamily: 'inherit',
       zoom: { enabled: false }
     },
-    colors: ['#3B82F6'], // Tailwind Blue 500
+    colors: ['#3B82F6'],
     fill: {
       type: 'gradient',
       gradient: {
@@ -49,6 +49,7 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
     yaxis: {
       title: { text: 'Bilancio Asset (Creati - Eliminati)', style: { color: '#64748B', fontWeight: 600 } },
       labels: {
+        minWidth: 40, // Previene il taglio dei numeri a sinistra
         formatter: (val) => Math.floor(val).toString(),
         style: { colors: '#64748B', fontSize: '12px', fontWeight: 600 }
       }
@@ -56,6 +57,7 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
     grid: {
       borderColor: '#E2E8F0',
       strokeDashArray: 4,
+      padding: { left: 15, right: 15 }, // Aggiunge respiro laterale al grafico
       yaxis: { lines: { show: true } },
       xaxis: { lines: { show: false } }
     },

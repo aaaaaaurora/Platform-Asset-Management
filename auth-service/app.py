@@ -261,7 +261,7 @@ def auth_google():
 
 
 # ============================================================================
-# ENDPOINT: Verifica 2FA e Generazione JWT Definitivo  
+# ENDPOINT: Verifica 2FA e Generazione JWT Definitivo 
 # ============================================================================
 
 @app.route('/auth/2fa/verify', methods=['POST'])
