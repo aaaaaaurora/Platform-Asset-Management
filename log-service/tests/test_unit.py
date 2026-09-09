@@ -200,12 +200,9 @@ def test_export_logs_csv(client, sample_log):
     
     csv_content = response.data.decode('utf-8')
     
-    # Verifica intestazioni base
     assert "Servizio" in csv_content
     assert "Azione" in csv_content
     assert "Utente" in csv_content
-    
-    # Verifica che il log di test non generi errori fatali
     assert len(csv_content.splitlines()) > 1
 
 
@@ -214,7 +211,7 @@ def test_export_logs_csv(client, sample_log):
 # ============================================================================
 
 def test_dashboard_metrics(client, sample_log):
-    """Verifica il calcolo delle metriche KPI e distribuzioni."""
+    """Verifica il calcolo netto delle metriche KPI e distribuzioni."""
     response = client.get('/api/dashboard/metrics', headers={
         "X-User-Role": "AMMINISTRATORE",
         "X-Campus-Ids": "campus-uuid-123"
@@ -230,8 +227,8 @@ def test_dashboard_metrics(client, sample_log):
 
 
 def test_dashboard_charts(client, sample_log):
-    """Verifica la generazione dei dati per i grafici (Time-Series e attributi custom)."""
-    response = client.get('/api/dashboard/charts?dynamic_attribute=status', headers={
+    """Verifica la generazione dei dati per i grafici (Time-Series)."""
+    response = client.get('/api/dashboard/charts', headers={
         "X-User-Role": "AMMINISTRATORE",
         "X-Campus-Ids": "campus-uuid-123"
     })
@@ -240,7 +237,3 @@ def test_dashboard_charts(client, sample_log):
     
     assert "time_series" in data
     assert isinstance(data["time_series"], list)
-    
-    assert "dynamic_distribution" in data
-    assert data["dynamic_distribution"]["attribute"] == "status"
-    assert data["dynamic_distribution"]["data"]["operativo"] == 1

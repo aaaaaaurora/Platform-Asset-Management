@@ -283,16 +283,16 @@ export default function CategoryEditor() {
       {error && <div className="mb-6 rounded-lg border-l-4 border-rose-500 bg-rose-50 p-4 text-rose-800 shadow-sm font-medium">{error}</div>}
       {successMsg && <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4 text-emerald-800 shadow-sm font-medium">{successMsg}</div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch">
         
         {/* COLONNA SINISTRA: Info Generali */}
-        <div className="lg:col-span-1">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+        <div className="lg:col-span-1 h-full">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-none">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Informazioni Base</h3>
             </div>
             
-            <div className="p-6 space-y-5">
+            <div className="p-6 space-y-5 flex-1">
               <div className="flex gap-4 items-start">
                 <div className="relative">
                   <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Icona</label>
@@ -320,24 +320,25 @@ export default function CategoryEditor() {
         </div>
 
         {/* COLONNA DESTRA: Metadati */}
-        <div className="lg:col-span-2">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden min-h-[400px]">
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center">
+        <div className="lg:col-span-2 h-full">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col min-h-[400px]">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center flex-none">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Tracciato Metadati</h3>
               <div className="flex gap-2">
                 <button onClick={() => setShowJsonImport(!showJsonImport)} className="px-3 py-1.5 text-xs font-bold text-slate-600 bg-white border border-slate-300 rounded-md hover:bg-slate-50 transition-colors shadow-sm">
                   {showJsonImport ? 'Chiudi JSON' : 'Importa JSON'}
                 </button>
                 <button onClick={() => { setEditingAttr(null); setAttrFormOpen(true); }} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 border border-blue-600 rounded-md hover:bg-blue-700 transition-colors shadow-sm">
-                  + Aggiungi attributo
+                  + Aggiungi Singolo
                 </button>
               </div>
             </div>
 
-            <div className="p-6">
+            {/* AREA SCROLLABILE */}
+            <div className="p-6 flex-1 overflow-y-auto max-h-[550px]">
               {showJsonImport && (
                 <div className="mb-6 p-5 rounded-xl border border-slate-300 bg-slate-50 dark:bg-slate-900 shadow-inner animate-fade-in-up">
-                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Configura dinamicamente lo schema JSON</label>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Importa schema JSON</label>
                   <textarea 
                     rows={8} 
                     value={jsonText} 
@@ -420,7 +421,7 @@ export default function CategoryEditor() {
           Annulla Modifiche
         </button>
         <button onClick={handleSaveAll} disabled={isSubmitting || !hasChanges} className="px-8 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-md transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:bg-slate-400">
-          {isSubmitting ? "Salvataggio in corso..." : (currentCategory ? "Salva Categoria" : "Crea Categoria Definitiva")}
+          {isSubmitting ? "Salvataggio in corso..." : (currentCategory ? "Aggiorna categoria" : "Crea nuova sategoria")}
         </button>
       </div>
 

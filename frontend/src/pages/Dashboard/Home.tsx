@@ -8,21 +8,6 @@ import CategoryDistributionChart from "../../components/dashboard/CategoryDistri
 import TimeSeriesChart from "../../components/dashboard/TimeSeriesChart";
 import CampusDistributionChart from "../../components/dashboard/CampusDistributionChart";
 
-const getGreeting = (name?: string) => {
-  if (!name) return 'Benvenuta'; 
-  
-  const lowerName = name.trim().toLowerCase();
-  const maleExceptions = ['andrea', 'luca', 'mattia', 'nicola', 'enea', 'elia', 'battista'];
-  
-  if (maleExceptions.includes(lowerName)) {
-    return 'Benvenuto';
-  }
-  if (lowerName.endsWith('a')) {
-    return 'Benvenuta';
-  }
-  return 'Benvenuta';
-};
-
 interface Campus {
   id: string;
   name: string;
@@ -31,7 +16,9 @@ interface Campus {
 export default function Home() {
   const { token, user } = useAuth();
   
-  const [selectedCampus, setSelectedCampus] = useState<string>(""); 
+  // Stato trasformato in array per supportare la selezione multipla
+  const [selectedCampuses, setSelectedCampuses] = useState<string[]>([]);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   
   const [availableCampuses, setAvailableCampuses] = useState<Campus[]>([]);
   const [metrics, setMetrics] = useState<any>(null);
@@ -39,6 +26,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
 
   const displayFirstName = user?.first_name || (user?.name ? user.name.split(' ')[0] : '');
+  const greeting = "Benvenuta";
 
   useEffect(() => {
     const fetchCampuses = async () => {
@@ -66,7 +54,10 @@ export default function Home() {
         const baseUrl = import.meta.env.VITE_API_URL || '';
 
         const baseParams = new URLSearchParams();
-        if (selectedCampus) baseParams.append('campus_id', selectedCampus);
+        // Invia i campus separati da virgola al backend
+        if (selectedCampuses.length > 0) {
+          baseParams.append('campus_id', selectedCampuses.join(','));
+        }
 
         const [metricsRes, chartsRes] = await Promise.all([
           fetch(`${baseUrl}/log/api/dashboard/metrics?${baseParams.toString()}`, { headers }),
@@ -83,76 +74,108 @@ export default function Home() {
     };
 
     fetchDashboardData();
-  }, [token, selectedCampus]);
+  }, [token, selectedCampuses]);
+
+  // Gestione dinamica delle checkbox
+  const toggleCampus = (id: string) => {
+    setSelectedCampuses(prev => 
+      prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
+    );
+  };
 
   return (
-    <>
+    <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
       <PageMeta
-        title="Dashboard Amministratore | Asset Management Unisa"
-        description="Pannello di controllo riepilogativo per la gestione degli asset del campus."
+        title="Dashboard Amministratore | Asset Management"
+        description="Pannello di controllo riepilogativo per la gestione degli asset."
       />
       
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {/* HEADER & FILTRO */}
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-6">
         <div>
-          <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
-            {getGreeting(displayFirstName)}, {displayFirstName || 'Amministratore'}!
+          <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            {greeting}, {displayFirstName || 'Amministratore'}!
           </h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Visualizza lo stato di salute dei tuoi Campus e monitora gli asset.
+          <p className="mt-2 text-sm font-medium text-slate-500 dark:text-slate-400">
+            Ecco una panoramica aggiornata in tempo reale sullo stato dei tuoi campus.
           </p>
         </div>
-      </div>
-
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Filtro Campus
-            </label>
-            <select
-              value={selectedCampus}
-              onChange={(e) => setSelectedCampus(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
-            >
-              <option value="">Tutti i Campus</option>
-              {availableCampuses.map((campus) => (
-                <option key={campus.id} value={campus.id}>
-                  {campus.name}
-                </option>
-              ))}
-            </select>
+        
+        {/* DROPDOWN CUSTOM SELEZIONE MULTIPLA */}
+        <div className="relative w-full sm:w-72 bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 p-3">
+          <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 px-1 mb-1.5">
+            Filtro Spaziale
+          </label>
+          <div 
+            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all cursor-pointer flex justify-between items-center"
+          >
+            <span className="truncate pr-2">
+              {selectedCampuses.length === 0 
+                ? "🌍 Tutti i Campus" 
+                : selectedCampuses.length === 1 
+                  ? `📍 ${availableCampuses.find(c => c.id === selectedCampuses[0])?.name || 'Campus Selezionato'}`
+                  : `🌍 ${selectedCampuses.length} Campus selezionati`}
+            </span>
+            <svg className={`w-4 h-4 text-slate-400 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
           </div>
+
+          {isDropdownOpen && (
+            <>
+              {/* Overlay invisibile per chiudere al click fuori */}
+              <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)}></div>
+              
+              <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto overflow-x-hidden animate-fade-in-up">
+                <div 
+                  className="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                  onClick={() => { setSelectedCampuses([]); setIsDropdownOpen(false); }}
+                >
+                  🌍 Tutti i Campus (Azzera filtri)
+                </div>
+                {availableCampuses.map((campus) => (
+                  <label key={campus.id} className="flex items-center px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedCampuses.includes(campus.id)}
+                      onChange={() => toggleCampus(campus.id)}
+                      className="mr-3 h-4.5 w-4.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                    />
+                    <span className="truncate">{campus.name}</span>
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-solid border-blue-600 border-t-transparent"></div>
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600"></div>
         </div>
       ) : (
-        <div className="grid grid-cols-12 gap-4 md:gap-6">
+        <div className="grid grid-cols-12 gap-6 items-stretch">
           
           <div className="col-span-12">
             <AssetMetrics totals={metrics?.totals} />
           </div>
 
-          {/* Aggiunto [&>*]:h-full per forzare l'altezza massima del componente figlio */}
-          <div className="col-span-12 xl:col-span-8 [&>*]:h-full">
+          <div className="col-span-12 xl:col-span-8 flex flex-col">
             <TimeSeriesChart timeSeries={charts?.time_series} />
           </div>
-          
-          <div className="col-span-12 xl:col-span-4 [&>*]:h-full">
+          <div className="col-span-12 xl:col-span-4 flex flex-col">
             <CategoryDistributionChart distributionData={metrics?.distributions?.by_category} />
           </div>
 
-          {selectedCampus === "" && (
-            <div className="col-span-12 [&>*]:h-full">
+          {/* Mostra il grafico di distribuzione SOLO se ci sono più campus o se la visione è globale */}
+          {selectedCampuses.length !== 1 && (
+            <div className="col-span-12 flex flex-col">
               <CampusDistributionChart distributionData={metrics?.distributions?.by_campus} />
             </div>
           )}
 
         </div>
       )}
-    </>
+    </div>
   );
 }
