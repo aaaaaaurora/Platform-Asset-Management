@@ -213,17 +213,11 @@ class AuditLogRepository:
         created_assets = asset_query.filter(AuditLog.action == 'ASSET_CREATED').count()
         deleted_assets = asset_query.filter(AuditLog.action == 'ASSET_DELETED').count()
         assets_count = max(0, created_assets - deleted_assets)
-<<<<<<< HEAD
         
         # Conteggio Segnalazioni
         warning_query = apply_base_filters(db.session.query(AuditLog))
         created_warnings = warning_query.filter(AuditLog.action == 'CREATE_WARNING').count()
         resolved_warnings = warning_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
-=======
-         
-        created_warnings = base_query.filter(AuditLog.action == 'CREATE_WARNING').count()
-        resolved_warnings = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
->>>>>>> 6c2f90715a8310dde2ac5480ce1261e1c873f823
         tickets_count = max(0, created_warnings - resolved_warnings) 
         interventions_count = resolved_warnings 
 

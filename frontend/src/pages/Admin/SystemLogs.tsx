@@ -18,7 +18,7 @@ type LogViewType = 'business' | 'system';
 export default function SystemLogs() {
   const { token } = useAuth();
   
-  // Vista corrente: 'business' (Operativi/Filtrabili) di default
+  // Vista corrente: 'business' (Operativi/Filtrabili) di default 
   const [currentView, setCurrentView] = useState<LogViewType>('business');
 
   // Dati
