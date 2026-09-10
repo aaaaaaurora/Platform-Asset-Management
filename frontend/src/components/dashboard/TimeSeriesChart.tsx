@@ -76,7 +76,7 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
       tooltip: { enabled: false }
     },
     yaxis: {
-      title: { text: 'Numero di Asset Creati', style: { color: '#64748B', fontWeight: 600 } },
+      title: { text: 'Numero di Assets Creati', style: { color: '#64748B', fontWeight: 600 } },
       labels: {
         minWidth: 40,
         formatter: (val) => Math.floor(val).toString(),
@@ -106,7 +106,7 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
 
       <div className="flex-1 min-h-[300px] w-full">
         {hasData ? (
-          <ReactApexChart options={options} series={[{ name: 'Asset creati', data: seriesData }]} type="area" height="100%" />
+          <ReactApexChart options={options} series={[{ name: 'Assets creati', data: seriesData }]} type="area" height="100%" />
         ) : (
           <div className="flex h-full items-center justify-center text-sm font-medium text-slate-400">
             Nessun dato storico disponibile per questo periodo.

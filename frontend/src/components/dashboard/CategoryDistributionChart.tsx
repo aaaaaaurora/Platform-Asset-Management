@@ -37,7 +37,7 @@ export default function CategoryDistributionChart({ distributionData }: Category
     },
     dataLabels: { enabled: false },
     stroke: { width: 0 },
-    tooltip: { theme: 'light', y: { formatter: (val) => `${val} unità` } }
+    tooltip: { theme: 'light', y: { formatter: (val) => `${val}` } }
   };
 
   return (

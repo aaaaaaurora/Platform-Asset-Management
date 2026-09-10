@@ -57,7 +57,7 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
     },
     tooltip: { 
       theme: 'light',
-      y: { formatter: (val) => `${val} Asset` }
+      y: { formatter: (val) => `${val}` }
     }
   };
 
@@ -70,7 +70,7 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
 
       <div className="flex-1 w-full overflow-x-hidden overflow-y-auto">
         {hasData ? (
-          <ReactApexChart options={options} series={[{ name: 'Asset', data: seriesData }]} type="bar" height={dynamicHeight} />
+          <ReactApexChart options={options} series={[{ name: 'Assets', data: seriesData }]} type="bar" height={dynamicHeight} />
         ) : (
           <div className="flex h-[300px] items-center justify-center text-sm font-medium text-slate-400">
             Nessun dato per i campus attualmente disponibili.
