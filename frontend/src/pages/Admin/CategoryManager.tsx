@@ -257,12 +257,11 @@ export default function CategoryEditor() {
   if (isLoading) return <div className="flex justify-center p-10"><div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div></div>;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-      
+    <>
       {/* HEADER PAGINA */}
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <button onClick={() => navigate('/admin/categories')} className="text-sm font-semibold text-slate-500 hover:text-blue-600 mb-2 transition-colors flex items-center gap-1.5">
+          <button onClick={() => navigate('/admin/categories')} className="text-sm font-semibold text-slate-500 hover:text-blue-600 mb-1 transition-colors flex items-center gap-1.5">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
             Torna alle Categorie
           </button>
@@ -283,11 +282,11 @@ export default function CategoryEditor() {
       {error && <div className="mb-6 rounded-lg border-l-4 border-rose-500 bg-rose-50 p-4 text-rose-800 shadow-sm font-medium">{error}</div>}
       {successMsg && <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4 text-emerald-800 shadow-sm font-medium">{successMsg}</div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8 items-start">
         
         {/* COLONNA SINISTRA: Info Generali */}
-        <div className="lg:col-span-1 h-full">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col">
+        <div className="lg:col-span-1">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-none">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Informazioni Base</h3>
             </div>
@@ -320,8 +319,8 @@ export default function CategoryEditor() {
         </div>
 
         {/* COLONNA DESTRA: Metadati */}
-        <div className="lg:col-span-2 h-full">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 h-full flex flex-col min-h-[400px]">
+        <div className="lg:col-span-2">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col min-h-[400px]">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center flex-none">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Tracciato Metadati</h3>
               <div className="flex gap-2">
@@ -334,16 +333,16 @@ export default function CategoryEditor() {
               </div>
             </div>
 
-            {/* AREA SCROLLABILE */}
-            <div className="p-6 flex-1 overflow-y-auto max-h-[550px]">
-              {showJsonImport && (
-                <div className="mb-6 p-5 rounded-xl border border-slate-300 bg-slate-50 dark:bg-slate-900 shadow-inner animate-fade-in-up">
+            {/* AREA DI IMPORT JSON (Sopra la lista) */}
+            {showJsonImport && (
+              <div className="p-6 pb-0 border-b border-slate-100">
+                <div className="p-5 rounded-xl border border-slate-300 bg-slate-50 dark:bg-slate-900 shadow-inner animate-fade-in-up">
                   <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Importa schema JSON</label>
                   <textarea 
-                    rows={8} 
+                    rows={12} 
                     value={jsonText} 
                     onChange={e => { setJsonText(e.target.value); setJsonError(""); }}
-                    placeholder={`[\n  {\n    "name": "Materiale",\n    "type": "enum",\n    "options": ["Legno", "Ferro"]\n  }\n]`}
+                    placeholder={`[\n  {\n    "name": "Stato operativo",\n    "type": "enum",\n    "required": true,\n    "filterable": true,\n    "editable": true,\n    "visible": true,\n    "options": [\n      "Nuovo",\n      "In uso",\n      "In manutenzione",\n      "Dismesso"\n    ]\n  }\n]`}
                     className="w-full font-mono text-sm p-4 rounded-lg border border-slate-300 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-green-400 shadow-sm"
                   />
                   {jsonError && <p className="text-sm text-rose-600 font-bold mt-3 bg-rose-50 p-2 rounded border border-rose-100">{jsonError}</p>}
@@ -352,8 +351,11 @@ export default function CategoryEditor() {
                     <button onClick={handleJsonImport} className="px-5 py-2 text-sm font-bold text-white bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors shadow-sm">Elabora e Inserisci</button>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
+            {/* AREA SCROLLABILE METADATI */}
+            <div className="p-6 flex-1 overflow-y-auto max-h-[550px]">
               {localAttributes.length === 0 ? (
                 <div className="text-center py-16 px-4 border-2 border-dashed border-slate-300 rounded-xl bg-slate-50/50 dark:bg-slate-900/50 dark:border-slate-700">
                   <div className="mx-auto h-12 w-12 text-slate-300 mb-3">
@@ -421,13 +423,13 @@ export default function CategoryEditor() {
           Annulla Modifiche
         </button>
         <button onClick={handleSaveAll} disabled={isSubmitting || !hasChanges} className="px-8 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-md transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:bg-slate-400">
-          {isSubmitting ? "Salvataggio in corso..." : (currentCategory ? "Aggiorna categoria" : "Crea nuova sategoria")}
+          {isSubmitting ? "Salvataggio in corso..." : (currentCategory ? "Aggiorna categoria" : "Crea nuova categoria")}
         </button>
       </div>
 
       <AttributeFormModal isOpen={attrFormOpen} initialData={editingAttr} onClose={() => setAttrFormOpen(false)} onSave={handleSaveAttribute} isSubmitting={false} />
       <ConfirmAlertModal isOpen={conflictPrompt.isOpen} title="Conflitto Storico" confirmText="Depreca e Genera Nuovo" confirmColor="amber" onClose={() => setConflictPrompt({isOpen: false, pendingAttr: null})} onConfirm={handleResolveConflict} isSubmitting={isSubmitting} message={<>Esistono vecchi asset con questo formato. Vuoi deprecare il vecchio attributo e generarne uno nuovo?</>} />
       <ConfirmAlertModal isOpen={deleteCategoryAlert} title="Elimina Categoria" confirmText="Elimina Definitivamente" confirmColor="rose" onClose={() => setDeleteCategoryAlert(false)} onConfirm={handleDeleteCategory} isSubmitting={isSubmitting} message={<>Questa operazione eliminerà l'intera categoria. Sicuro di procedere?</>} />
-    </div>
+    </>
   );
 }

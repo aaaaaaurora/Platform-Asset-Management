@@ -6,7 +6,7 @@ import time
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 from sqlalchemy.exc import SQLAlchemyError
 from marshmallow import Schema, fields, INCLUDE, ValidationError
 import csv
@@ -139,9 +139,15 @@ class AuditLogRepository:
         if filters.get('end_date'):
             query = query.filter(AuditLog.created_at <= filters['end_date'])
 
+        # Inclusione Eventi di Sistema (Senza campus_id)
         campus_ids = filters.get('campus_ids')
         if campus_ids:
-            query = query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
+            query = query.filter(
+                or_(
+                    AuditLog.payload['campus_id'].astext.in_(campus_ids),
+                    AuditLog.payload['campus_id'].astext == None
+                )
+            )
             
         category_ids = filters.get('category_ids')
         if category_ids:
@@ -178,7 +184,6 @@ class AuditLogRepository:
 
         base_query = apply_base_filters(db.session.query(AuditLog))
 
-        # 1. Metriche Assolute (Differenziale tra Creazione e Risoluzione/Eliminazione)
         created_assets = base_query.filter(AuditLog.action == 'ASSET_CREATED').count()
         deleted_assets = base_query.filter(AuditLog.action == 'ASSET_DELETED').count()
         assets_count = max(0, created_assets - deleted_assets)
@@ -187,10 +192,8 @@ class AuditLogRepository:
         resolved_warnings = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
         tickets_count = max(0, created_warnings - resolved_warnings) 
         
-        # MODIFICA: Conteggio solo delle segnalazioni chiuse (RESOLVE_WARNING)
         interventions_count = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count() 
 
-        # Variabile per il calcolo differenziale dinamico netto
         net_asset_calc = func.sum(
             case(
                 (AuditLog.action == 'ASSET_CREATED', 1),
@@ -199,7 +202,6 @@ class AuditLogRepository:
             )
         )
 
-        # 2. Distribuzione Categorie (nomi) calcolando solo il saldo netto degli asset attivi
         category_label = func.coalesce(AuditLog.payload['category_name'].astext, AuditLog.payload['category_id'].astext).label('category_label')
         category_query = db.session.query(category_label, net_asset_calc).filter(
             AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
@@ -207,7 +209,6 @@ class AuditLogRepository:
         category_query = apply_base_filters(category_query)
         category_dist_results = category_query.group_by('category_label').having(net_asset_calc > 0).all()
         
-        # 3. Distribuzione Campus (nomi) calcolando solo il saldo netto degli asset attivi
         campus_label = func.coalesce(AuditLog.payload['campus_name'].astext, AuditLog.payload['campus_id'].astext).label('campus_label')
         campus_query = db.session.query(campus_label, net_asset_calc).filter(
             AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
