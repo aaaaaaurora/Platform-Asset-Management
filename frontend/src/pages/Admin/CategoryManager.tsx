@@ -331,7 +331,7 @@ export default function CategoryEditor() {
                   {showJsonImport ? 'Chiudi JSON' : 'Importa JSON'}
                 </button>
                 <button onClick={() => { setEditingAttr(null); setAttrFormOpen(true); }} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 border border-blue-600 rounded-md hover:bg-blue-700 transition-colors shadow-sm">
-                  + Aggiungi Singolo
+                  + Aggiungi attributo
                 </button>
               </div>
             </div>
