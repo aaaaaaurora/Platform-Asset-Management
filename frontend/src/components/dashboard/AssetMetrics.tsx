@@ -1,3 +1,41 @@
+import { useEffect, useState } from 'react';
+
+// Componente helper per l'animazione fluida dei numeri (effetto odometro)
+function AnimatedNumber({ value }: { value: number }) {
+  const [displayValue, setDisplayValue] = useState(value);
+
+  useEffect(() => {
+    let start = displayValue;
+    const end = value;
+    if (start === end) return;
+
+    const duration = 1200; // 1.2 secondi di animazione fluida
+    const startTime = performance.now();
+
+    const animate = (currentTime: number) => {
+      const elapsedTime = currentTime - startTime;
+      const progress = Math.min(elapsedTime / duration, 1);
+
+      // Funzione di Easing (easeOutExpo) per un rallentamento morbido e molto elegante alla fine
+      const easeOut = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+      const currentVal = Math.floor(start + (end - start) * easeOut);
+
+      setDisplayValue(currentVal);
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        setDisplayValue(end);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [value]); // Si innesca automaticamente ogni volta che il websocket cambia il prop 'value'
+
+  // Formattazione con il punto per le migliaia (standard italiano)
+  return <>{new Intl.NumberFormat('it-IT').format(displayValue)}</>;
+}
+
 interface AssetMetricsProps {
   totals: {
     assets: number;
@@ -18,7 +56,7 @@ export default function AssetMetrics({ totals }: AssetMetricsProps) {
           <div>
             <span className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assets Attivi</span>
             <h4 className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-              {data.assets}
+              <AnimatedNumber value={data.assets} />
             </h4>
           </div>
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
@@ -35,7 +73,7 @@ export default function AssetMetrics({ totals }: AssetMetricsProps) {
           <div>
             <span className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Segnalazioni Aperte</span>
             <h4 className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-              {data.tickets}
+              <AnimatedNumber value={data.tickets} />
             </h4>
           </div>
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 dark:bg-amber-500/10 dark:text-amber-400">
@@ -52,7 +90,7 @@ export default function AssetMetrics({ totals }: AssetMetricsProps) {
           <div>
             <span className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Segnalazioni Risolte</span>
             <h4 className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
-              {data.interventions}
+              <AnimatedNumber value={data.interventions} />
             </h4>
           </div>
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500 dark:bg-emerald-500/10 dark:text-emerald-400">

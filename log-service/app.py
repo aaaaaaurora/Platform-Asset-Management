@@ -13,6 +13,7 @@ import csv
 import io
 from flask import Response
 import dateutil.parser
+from flask_socketio import SocketIO
 
 # Importiamo il gestore centralizzato per RabbitMQ (dalla cartella condivisa)
 from shared_utils.messaging import RabbitMQManager
@@ -28,6 +29,8 @@ logging.basicConfig(
 logger = logging.getLogger('log-service')
 
 app = Flask(__name__)
+
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5433/log_db')
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
@@ -196,7 +199,7 @@ class AuditLogRepository:
 
     @staticmethod
     def get_dashboard_metrics(filters: dict) -> dict:
-        def apply_base_filters(query):
+        def apply_base_filters(query, apply_category=True):
             query = query.filter(AuditLog.service_name != 'media-service')
             if filters.get('start_date'):
                 query = query.filter(AuditLog.created_at >= filters['start_date'])
@@ -204,18 +207,18 @@ class AuditLogRepository:
                 query = query.filter(AuditLog.created_at <= filters['end_date'])
             if filters.get('campus_ids'):
                 query = query.filter(AuditLog.payload['campus_id'].astext.in_(filters['campus_ids']))
-            if filters.get('category_ids'):
+            if apply_category and filters.get('category_ids'):
                 query = query.filter(AuditLog.payload['category_id'].astext.in_(filters['category_ids']))
             return query
 
-        # Conteggio Asset 
-        asset_query = apply_base_filters(db.session.query(AuditLog))
+        # Conteggio Asset (con filtro categoria applicato)
+        asset_query = apply_base_filters(db.session.query(AuditLog), apply_category=True)
         created_assets = asset_query.filter(AuditLog.action == 'ASSET_CREATED').count()
         deleted_assets = asset_query.filter(AuditLog.action == 'ASSET_DELETED').count()
         assets_count = max(0, created_assets - deleted_assets)
         
-        # Conteggio Segnalazioni
-        warning_query = apply_base_filters(db.session.query(AuditLog))
+        # Conteggio Segnalazioni (filtro categoria IGNORATO per evitare il bug del ritorno a 0)
+        warning_query = apply_base_filters(db.session.query(AuditLog), apply_category=False)
         created_warnings = warning_query.filter(AuditLog.action == 'CREATE_WARNING').count()
         resolved_warnings = warning_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
         tickets_count = max(0, created_warnings - resolved_warnings) 
@@ -233,14 +236,14 @@ class AuditLogRepository:
         category_query = db.session.query(category_label, net_asset_calc).filter(
             AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
         )
-        category_query = apply_base_filters(category_query)
+        category_query = apply_base_filters(category_query, apply_category=True)
         category_dist_results = category_query.group_by('category_label').having(net_asset_calc > 0).all()
         
         campus_label = func.coalesce(AuditLog.payload['campus_name'].astext, AuditLog.payload['campus_id'].astext).label('campus_label')
         campus_query = db.session.query(campus_label, net_asset_calc).filter(
             AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
         )
-        campus_query = apply_base_filters(campus_query)
+        campus_query = apply_base_filters(campus_query, apply_category=True)
         campus_dist_results = campus_query.group_by('campus_label').having(net_asset_calc > 0).all()
 
         return {
@@ -257,6 +260,7 @@ class AuditLogRepository:
     
     @staticmethod
     def get_dashboard_charts(filters: dict) -> dict:
+        # Modificato per contare ESCLUSIVAMENTE gli ASSET_CREATED senza sottrarre gli eliminati
         time_series_query = db.session.query(
             func.date_trunc('day', AuditLog.created_at).label('creation_day'),
             func.count().label('count')
@@ -307,7 +311,7 @@ class LogService:
             'entity_id': query_params.get('entity_id'),
             'start_date': query_params.get('start_date'),
             'end_date': query_params.get('end_date'),
-            'log_type': query_params.get('log_type')
+            'log_type': query_params.get('log_type')  # Nuovo parametro
         }
         
         requested_campus = query_params.get('campus_id')
@@ -600,7 +604,7 @@ def get_dashboard_charts_api():
 
 
 # ============================================================================
-# 8. RABBITMQ CONSUMER BACKGROUND THREAD
+# 8. RABBITMQ CONSUMER BACKGROUND THREAD CON WEBSOCKET
 # ============================================================================
 
 def process_log_event(ch, method, properties, body):
@@ -631,6 +635,12 @@ def process_log_event(ch, method, properties, body):
             )
             
             AuditLogRepository.insert(log_entry)
+            
+            # <-- EMISSIONE WEBSOCKET DOPO IL SALVATAGGIO REALE -->
+            socketio.emit('new_log_event', {
+                'action': log_entry.action,
+                'service': log_entry.service_name
+            })
             
             if ch.is_open:
                 ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -673,4 +683,4 @@ consumer_thread = threading.Thread(target=start_mq_consumer, daemon=True)
 consumer_thread.start()
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5000)

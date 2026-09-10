@@ -54,9 +54,19 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
     },
     dataLabels: { enabled: false },
     stroke: { curve: 'smooth', width: 3 },
+    // Attivazione esplicita dei marker per visualizzare i punti dei dati
+    markers: {
+      size: 5,
+      colors: ['#3B82F6'],
+      strokeColors: '#ffffff',
+      strokeWidth: 2,
+      hover: { size: 7 }
+    },
     xaxis: {
       type: 'datetime',
       categories: categories,
+      // Forza il numero di etichette a coincidere con i giorni reali (max 15 per non accavallarle)
+      tickAmount: hasData ? Math.min(timeSeries.length, 15) : undefined,
       labels: {
         format: 'dd MMM',
         style: { colors: '#64748B', fontSize: '12px', fontWeight: 600 }
@@ -83,7 +93,7 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
     tooltip: {
       theme: 'light',
       x: { format: 'dd MMMM yyyy' },
-      y: { formatter: (val) => `${val} Asset creati` }
+      y: { formatter: (val) => `${val}` }
     }
   };
 
@@ -96,7 +106,7 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
 
       <div className="flex-1 min-h-[300px] w-full">
         {hasData ? (
-          <ReactApexChart options={options} series={[{ name: 'Asset Creati', data: seriesData }]} type="area" height="100%" />
+          <ReactApexChart options={options} series={[{ name: 'Asset creati', data: seriesData }]} type="area" height="100%" />
         ) : (
           <div className="flex h-full items-center justify-center text-sm font-medium text-slate-400">
             Nessun dato storico disponibile per questo periodo.

@@ -1010,6 +1010,113 @@ def get_assets():
         return error_response(f"Errore durante la ricerca degli asset: {str(e)}", 500)
     
 
+# ============================================================================
+# ENDPOINT: Esportazione CSV degli Assets 
+# ============================================================================
+@app.route('/api/assets/export', methods=['GET'])
+def export_assets():
+    """
+    Esporta in formato CSV gli asset filtrati, estraendo dinamicamente 
+    tutti gli attributi valorizzati. L'uso è riservato agli Amministratori.
+    """
+    auth = get_auth_context()
+    if auth.get('role') != 'AMMINISTRATORE':
+        return error_response("Accesso negato. Solo gli Amministratori possono esportare gli asset.", 403)
+
+    user_campuses = auth.get('campus_ids', [])
+    mongo_query = {}
+
+    # 1. Filtro Territoriale
+    requested_campuses = request.args.getlist('campus_id')
+    if requested_campuses:
+        valid_campuses = [c for c in requested_campuses if c in user_campuses]
+        if not valid_campuses:
+            from flask import Response
+            return Response("\ufeffNessun dato corrispondente ai filtri.", mimetype="text/csv")
+        mongo_query['campus_id'] = {'$in': valid_campuses}
+    else:
+        mongo_query['campus_id'] = {'$in': user_campuses}
+
+    # 2. Filtro Categoria
+    requested_categories = request.args.getlist('category_id')
+    if requested_categories:
+        mongo_query['category_id'] = {'$in': requested_categories}
+
+    # 3. Filtri Dinamici
+    def parse_filter_value(v):
+        v = v.strip()
+        if v.lower() == 'true': return True
+        if v.lower() == 'false': return False
+        try: return float(v)
+        except ValueError: return v
+
+    for key, value in request.args.items():
+        if key.startswith('attr_'):
+            attr_name = key[5:]
+            if ',' in value:
+                parsed_values = [parse_filter_value(v) for v in value.split(',')]
+                mongo_query[f'metadata.{attr_name}'] = {'$in': parsed_values}
+            else:
+                mongo_query[f'metadata.{attr_name}'] = parse_filter_value(value)
+
+    try:
+        assets_list = list(assets_col.find(mongo_query))
+        
+        # Recupero nomi categorie in cache per la colonna descrittiva
+        cat_cache = {str(c['_id']): c.get('name', 'Sconosciuta') for c in categories_col.find()}
+        
+        # Estrazione dinamica delle chiavi dei metadati da tutti gli asset
+        meta_keys = set()
+        for asset in assets_list:
+            meta_keys.update(asset.get('metadata', {}).keys())
+        sorted_meta = sorted(list(meta_keys))
+
+        import io
+        import csv
+        from flask import Response
+        
+        output = io.StringIO()
+        output.write('\ufeff') # BOM per costringere Excel a leggere l'UTF-8
+        
+        # Generazione Header dinamico
+        headers = ['ID Seriale', 'Categoria', 'Campus', 'Latitudine', 'Longitudine', 'Data Creazione'] + [k.replace('_', ' ').title() for k in sorted_meta]
+        writer = csv.writer(output, delimiter=';')
+        writer.writerow(headers)
+
+        # Popolamento Righe
+        for asset in assets_list:
+            cat_name = cat_cache.get(str(asset.get('category_id')), 'Sconosciuta')
+            camp_name = get_cached_campus_name(asset.get('campus_id')) or asset.get('campus_id')
+            coords = asset.get('geometry', {}).get('coordinates', ['', ''])
+            lng = coords[0] if len(coords) > 0 else ''
+            lat = coords[1] if len(coords) > 1 else ''
+            
+            # Troncamento orario, mostriamo solo la data
+            created_at = asset.get('created_at', '')[:10]
+            
+            row = [str(asset.get('_id')), cat_name, camp_name, str(lat), str(lng), created_at]
+            
+            # Popolamento valori attributi dinamici
+            meta = asset.get('metadata', {})
+            for k in sorted_meta:
+                val = meta.get(k, '')
+                if isinstance(val, list):
+                    val = ", ".join(map(str, val))
+                elif isinstance(val, bool):
+                    val = "Sì" if val else "No"
+                row.append(str(val))
+                
+            writer.writerow(row)
+
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=assets_export.csv"}
+        )
+
+    except Exception as e:
+        return error_response(f"Errore durante l'esportazione CSV: {str(e)}", 500)
+
 # ===================================================================================
 # ENDPOINT: Eliminazione di un Asset esistente (soft delete con tracciamento storico)
 # ===================================================================================
@@ -1197,7 +1304,7 @@ def process_system_events(ch, method, properties, body):
                         }
                     )
                     
-        # Ack manuale se auto_ack=False
+        # Ack manuale se auto_ack=False 
         if ch.is_open and not getattr(ch, 'auto_ack', True):
             ch.basic_ack(delivery_tag=method.delivery_tag)
             

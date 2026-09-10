@@ -17,15 +17,18 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
 
   const options: ApexOptions = {
     chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'inherit' },
-    colors: ['#10B981'], 
+    // Array di colori per differenziare i campus
+    colors: ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#14B8A6'], 
     plotOptions: {
       bar: {
         horizontal: true,
         borderRadius: 4,
-        barHeight: '28px', // Mantiene le barre sottili ed eleganti, anche se ce n'è una sola
-        dataLabels: { position: 'top' }
+        barHeight: '28px', // Mantiene le barre sottili ed eleganti
+        dataLabels: { position: 'top' },
+        distributed: true // Abilita l'uso sequenziale dell'array di colori per ogni barra
       },
     },
+    legend: { show: false }, // Nasconde la legenda automatica generata dal parametro 'distributed'
     dataLabels: { 
       enabled: true, 
       offsetX: -10, // Spinge il numero verso l'interno della barra

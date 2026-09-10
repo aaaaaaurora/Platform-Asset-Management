@@ -46,6 +46,9 @@ export default function AssetList() {
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // --- STATI ESPORTAZIONE CSV ---
+  const [isExporting, setIsExporting] = useState(false);
+
   // --- STATI PER I FILTRI OPERATORE (Selezione Multipla Campus) ---
   const [selectedCampusesOp, setSelectedCampusesOp] = useState<string[]>([]);
   const [isCampusDropdownOpenOp, setIsCampusDropdownOpenOp] = useState(false);
@@ -247,6 +250,58 @@ export default function AssetList() {
     setPreventiveNote('');
   };
 
+  // =================================================================
+  // ESPORTAZIONE CSV (Solo Admin)
+  // =================================================================
+  const handleExportCSV = async () => {
+    if (assets.length === 0) {
+      showNotification('error', "Nessun asset trovato. Regola i filtri prima di esportare.");
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const baseUrl = import.meta.env.VITE_API_URL || '';
+      const params = new URLSearchParams();
+
+      if (selectedCampusesAdmin.length > 0) {
+        selectedCampusesAdmin.forEach(id => params.append('campus_id', id));
+      }
+      if (selectedCategoriesAdmin.length > 0) {
+        selectedCategoriesAdmin.forEach(id => params.append('category_id', id));
+      }
+      
+      Object.entries(dynamicFilters).forEach(([key, value]) => {
+        if (value) params.append(`attr_${key}`, value);
+      });
+
+      const res = await fetch(`${baseUrl}/asset/api/assets/export?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Errore di generazione file. Si prega di riprovare.");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Lista_Assets_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      
+    } catch (err: any) {
+      showNotification('error', err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleUpdate = async () => {
     if (!selectedAsset || isAdmin) return;
     setIsProcessing(true);
@@ -346,7 +401,7 @@ export default function AssetList() {
 
   return (
     <>
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
             Lista Assets Censiti
@@ -355,6 +410,27 @@ export default function AssetList() {
             Cerca, filtra e gestisci gli elementi registrati nei campus.
           </p>
         </div>
+
+        {isAdmin && (
+          <button
+            onClick={handleExportCSV}
+            disabled={loading || isExporting}
+            className={`w-full sm:w-auto inline-flex items-center justify-center rounded-lg px-6 py-2.5 text-sm font-bold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              assets.length === 0 
+                ? 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300 dark:bg-slate-700 dark:text-slate-400' 
+                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-blue-600 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white dark:hover:bg-slate-700'
+            }`}
+          >
+            {isExporting ? (
+              <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-solid border-blue-600 border-t-transparent"></div>
+            ) : (
+              <svg className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            )}
+            {isExporting ? 'Generazione...' : 'Esporta CSV'}
+          </button>
+        )}
       </div>
 
       <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">

@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import PageMeta from "../../components/common/PageMeta";
 import { useAuth } from "../../context/AuthContext";
+import { io } from "socket.io-client"; // <-- AGGIUNTA: Import WebSocket
 import LogsTable, { AuditLog } from "../../components/admin/LogsTable";
 
 interface Campus {
@@ -44,6 +45,13 @@ export default function SystemLogs() {
   // Alert Errori
   const [errorMsg, setErrorMsg] = useState("");
   const [exportWarning, setExportWarning] = useState("");
+
+  // <-- AGGIUNTA: REF PER I FILTRI WEBSOCKET -->
+  // Serve al WebSocket per leggere i filtri correnti senza doversi ricollegare a ogni cambio di stato
+  const filtersRef = useRef({ selectedCampuses, selectedCategories, token, currentView, currentPage });
+  useEffect(() => {
+    filtersRef.current = { selectedCampuses, selectedCategories, token, currentView, currentPage };
+  }, [selectedCampuses, selectedCategories, token, currentView, currentPage]);
 
   useEffect(() => {
     const fetchFiltersData = async () => {
@@ -111,6 +119,48 @@ export default function SystemLogs() {
   useEffect(() => {
     fetchLogs(currentPage);
   }, [token, currentPage, selectedCampuses, selectedCategories, currentView]);
+
+  // <-- AGGIUNTA: CONNESSIONE WEBSOCKET -->
+  useEffect(() => {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+
+    socket.on('new_log_event', async (data) => {
+      const { selectedCampuses: sc, selectedCategories: cat, token: t, currentView: cv, currentPage: cp } = filtersRef.current;
+      if (!t) return;
+      
+      // Filtro intelligente: non disturbiamo il backend se l'evento non riguarda la vista corrente
+      if (cv === 'system' && data.service !== 'auth-service') return;
+      if (cv === 'business' && data.service === 'auth-service') return;
+
+      const apiUrl = import.meta.env.VITE_API_URL || '';
+      const params = new URLSearchParams();
+      params.append('page', cp.toString());
+      params.append('limit', '20');
+      params.append('log_type', cv);
+      
+      if (cv === 'business') {
+        if (sc.length > 0) params.append('campus_id', sc.join(','));
+        if (cat.length > 0) params.append('category_id', cat.join(','));
+      }
+
+      try {
+        const res = await fetch(`${apiUrl}/log/api/logs?${params.toString()}`, { 
+          headers: { Authorization: `Bearer ${t}` } 
+        });
+        if (res.ok) {
+          const resData = await res.json();
+          setLogs(resData.logs || []);
+          setTotalPages(resData.total_pages || 1);
+          setTotalItems(resData.total_items || 0);
+        }
+      } catch (e) {
+        console.error("Errore fetch background websocket:", e);
+      }
+    });
+
+    return () => { socket.disconnect(); };
+  }, []);
 
   const handleExportCSV = async () => {
     if (logs.length === 0) {
@@ -191,7 +241,7 @@ export default function SystemLogs() {
         description="Consulta e scarica l'audit trail completo del sistema."
       />
 
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
             Storico Operazioni
@@ -201,48 +251,51 @@ export default function SystemLogs() {
           </p>
         </div>
         
-        <button
-          onClick={handleExportCSV}
-          disabled={isLoading || isExporting}
-          className={`inline-flex items-center justify-center rounded-lg px-6 py-3 text-sm font-bold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-            logs.length === 0 
-              ? 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300 dark:bg-slate-700 dark:text-slate-400' 
-              : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-blue-600 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white dark:hover:bg-slate-700'
-          }`}
-        >
-          {isExporting ? (
-            <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-solid border-blue-600 border-t-transparent"></div>
-          ) : (
-            <svg className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-          )}
-          {isExporting ? 'Generazione...' : 'Esporta CSV'}
-        </button>
-      </div>
+        {/* GRUPPO CONTROLLI: TAB SWITCHER + EXPORT */}
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+          
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-800 w-full sm:w-auto">
+            <button
+              onClick={() => setCurrentView('business')}
+              className={`flex-1 sm:flex-none rounded-md px-6 py-2.5 text-sm font-bold transition-all ${
+                currentView === 'business'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+              }`}
+            >
+              Log Operativi
+            </button>
+            <button
+              onClick={() => setCurrentView('system')}
+              className={`flex-1 sm:flex-none rounded-md px-6 py-2.5 text-sm font-bold transition-all ${
+                currentView === 'system'
+                  ? 'bg-blue-600 text-white shadow'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+              }`}
+            >
+              Log di Sistema
+            </button>
+          </div>
 
-      {/* TAB SWITCHER */}
-      <div className="mb-6 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <button
-          onClick={() => setCurrentView('business')}
-          className={`rounded-md px-6 py-2 text-sm font-bold transition-all ${
-            currentView === 'business'
-              ? 'bg-blue-600 text-white shadow'
-              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
-          }`}
-        >
-          Log Operativi
-        </button>
-        <button
-          onClick={() => setCurrentView('system')}
-          className={`rounded-md px-6 py-2 text-sm font-bold transition-all ${
-            currentView === 'system'
-              ? 'bg-blue-600 text-white shadow'
-              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
-          }`}
-        >
-          Log di Sistema (Auth)
-        </button>
+          <button
+            onClick={handleExportCSV}
+            disabled={isLoading || isExporting}
+            className={`w-full sm:w-auto inline-flex items-center justify-center rounded-lg px-6 py-2.5 text-sm font-bold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              logs.length === 0 
+                ? 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300 dark:bg-slate-700 dark:text-slate-400' 
+                : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 hover:text-blue-600 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-white dark:hover:bg-slate-700'
+            }`}
+          >
+            {isExporting ? (
+              <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-solid border-blue-600 border-t-transparent"></div>
+            ) : (
+              <svg className="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            )}
+            {isExporting ? 'Generazione...' : 'Esporta CSV'}
+          </button>
+        </div>
       </div>
 
       {/* BLOCCO FILTRI - Mostrato SOLO per i log operativi */}

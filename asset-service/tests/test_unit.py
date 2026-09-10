@@ -242,3 +242,29 @@ def test_delete_asset_creates_history(client, existing_asset):
     assert len(history_list) == 2
     assert history_list[1]['action'] == 'DELETE'
     assert history_list[1]['state_snapshot']['metadata']['targa'] == 'AB123CD'
+    
+    # ============================================================================
+# TEST: ESPORTAZIONE CSV ASSET 
+# ============================================================================
+
+def test_export_assets_csv_admin(client, existing_asset):
+    """Verifica che l'admin possa scaricare il CSV con le colonne dinamiche popolate."""
+    # existig_asset restituisce (asset_id, category_id) dal fixture[cite: 12]
+    res = client.get('/api/assets/export', headers=ADMIN_HEADERS)
+    
+    assert res.status_code == 200
+    assert "text/csv" in res.headers["Content-Type"]
+    assert "attachment" in res.headers["Content-Disposition"]
+    
+    csv_content = res.data.decode('utf-8')
+    # Controlli Strutturali
+    assert "ID Seriale" in csv_content
+    assert "Latitudine" in csv_content
+    # Controlli sui Metadati Dinamici generati dall'asset fittizio
+    assert "Targa" in csv_content 
+    assert "AB123CD" in csv_content
+
+def test_export_assets_csv_operator_forbidden(client):
+    """Verifica il blocco di sicurezza in caso di richiesta da operatore."""
+    res = client.get('/api/assets/export', headers=OPERATOR_HEADERS)
+    assert res.status_code == 403
