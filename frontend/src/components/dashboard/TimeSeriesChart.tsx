@@ -66,9 +66,9 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
       tooltip: { enabled: false }
     },
     yaxis: {
-      title: { text: 'Bilancio Asset (Creati - Eliminati)', style: { color: '#64748B', fontWeight: 600 } },
+      title: { text: 'Numero di Asset Creati', style: { color: '#64748B', fontWeight: 600 } },
       labels: {
-        minWidth: 40, // Previene il taglio dei numeri a sinistra
+        minWidth: 40,
         formatter: (val) => Math.floor(val).toString(),
         style: { colors: '#64748B', fontSize: '12px', fontWeight: 600 }
       }
@@ -76,27 +76,27 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
     grid: {
       borderColor: '#E2E8F0',
       strokeDashArray: 4,
-      padding: { left: 15, right: 15 }, // Aggiunge respiro laterale al grafico
+      padding: { left: 15, right: 15 }, 
       yaxis: { lines: { show: true } },
       xaxis: { lines: { show: false } }
     },
     tooltip: {
       theme: 'light',
       x: { format: 'dd MMMM yyyy' },
-      y: { formatter: (val) => `${val} Asset netti` }
+      y: { formatter: (val) => `${val} Asset creati` }
     }
   };
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 h-full flex flex-col">
       <div className="mb-4">
-        <h4 className="text-xl font-extrabold text-slate-900 dark:text-white">Andamento Temporale</h4>
-        <p className="text-sm font-medium text-slate-500">Evoluzione netta del patrimonio asset nel tempo</p>
+        <h4 className="text-xl font-extrabold text-slate-900 dark:text-white">Andamento Censimenti</h4>
+        <p className="text-sm font-medium text-slate-500">Visualizza il numero di nuovi assets registrati giorno per giorno</p>
       </div>
 
       <div className="flex-1 min-h-[300px] w-full">
         {hasData ? (
-          <ReactApexChart options={options} series={[{ name: 'Bilancio', data: seriesData }]} type="area" height="100%" />
+          <ReactApexChart options={options} series={[{ name: 'Asset Creati', data: seriesData }]} type="area" height="100%" />
         ) : (
           <div className="flex h-full items-center justify-center text-sm font-medium text-slate-400">
             Nessun dato storico disponibile per questo periodo.

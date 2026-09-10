@@ -126,6 +126,9 @@ class AuditLogRepository:
     def _build_filter_query(filters: dict):
         query = db.session.query(AuditLog)
 
+        # 1. Filtro globale: Escludi sempre i log dei media
+        query = query.filter(AuditLog.service_name != 'media-service')
+
         if filters.get('service_name'):
             query = query.filter(AuditLog.service_name == filters['service_name'])
         if filters.get('action'):
@@ -139,19 +142,41 @@ class AuditLogRepository:
         if filters.get('end_date'):
             query = query.filter(AuditLog.created_at <= filters['end_date'])
 
-        # Inclusione Eventi di Sistema (Senza campus_id)
-        campus_ids = filters.get('campus_ids')
-        if campus_ids:
-            query = query.filter(
-                or_(
-                    AuditLog.payload['campus_id'].astext.in_(campus_ids),
-                    AuditLog.payload['campus_id'].astext == None
-                )
-            )
+        log_type = filters.get('log_type')
+
+        if log_type == 'system':
+            # Log di sistema: solo auth-service, nessun filtro campus/categoria applicato
+            query = query.filter(AuditLog.service_name == 'auth-service')
+        elif log_type == 'business':
+            # Log operativi: escludi auth-service, applica filtri territoriali/categoria
+            query = query.filter(AuditLog.service_name != 'auth-service')
             
-        category_ids = filters.get('category_ids')
-        if category_ids:
-            query = query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
+            campus_ids = filters.get('campus_ids')
+            if campus_ids:
+                query = query.filter(
+                    or_(
+                        AuditLog.payload['campus_id'].astext.in_(campus_ids),
+                        AuditLog.payload['campus_id'].astext == None
+                    )
+                )
+                
+            category_ids = filters.get('category_ids')
+            if category_ids:
+                query = query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
+        else:
+            # Comportamento di default
+            campus_ids = filters.get('campus_ids')
+            if campus_ids:
+                query = query.filter(
+                    or_(
+                        AuditLog.payload['campus_id'].astext.in_(campus_ids),
+                        AuditLog.payload['campus_id'].astext == None
+                    )
+                )
+                
+            category_ids = filters.get('category_ids')
+            if category_ids:
+                query = query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
 
         return query.order_by(AuditLog.created_at.desc())
 
@@ -172,6 +197,7 @@ class AuditLogRepository:
     @staticmethod
     def get_dashboard_metrics(filters: dict) -> dict:
         def apply_base_filters(query):
+            query = query.filter(AuditLog.service_name != 'media-service')
             if filters.get('start_date'):
                 query = query.filter(AuditLog.created_at >= filters['start_date'])
             if filters.get('end_date'):
@@ -182,17 +208,18 @@ class AuditLogRepository:
                 query = query.filter(AuditLog.payload['category_id'].astext.in_(filters['category_ids']))
             return query
 
-        base_query = apply_base_filters(db.session.query(AuditLog))
-
-        created_assets = base_query.filter(AuditLog.action == 'ASSET_CREATED').count()
-        deleted_assets = base_query.filter(AuditLog.action == 'ASSET_DELETED').count()
+        # Conteggio Asset 
+        asset_query = apply_base_filters(db.session.query(AuditLog))
+        created_assets = asset_query.filter(AuditLog.action == 'ASSET_CREATED').count()
+        deleted_assets = asset_query.filter(AuditLog.action == 'ASSET_DELETED').count()
         assets_count = max(0, created_assets - deleted_assets)
         
-        created_warnings = base_query.filter(AuditLog.action == 'CREATE_WARNING').count()
-        resolved_warnings = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
+        # Conteggio Segnalazioni
+        warning_query = apply_base_filters(db.session.query(AuditLog))
+        created_warnings = warning_query.filter(AuditLog.action == 'CREATE_WARNING').count()
+        resolved_warnings = warning_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
         tickets_count = max(0, created_warnings - resolved_warnings) 
-        
-        interventions_count = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count() 
+        interventions_count = resolved_warnings 
 
         net_asset_calc = func.sum(
             case(
@@ -230,18 +257,12 @@ class AuditLogRepository:
     
     @staticmethod
     def get_dashboard_charts(filters: dict) -> dict:
-        net_asset_calc = func.sum(
-            case(
-                (AuditLog.action == 'ASSET_CREATED', 1),
-                (AuditLog.action == 'ASSET_DELETED', -1),
-                else_=0
-            )
-        )
-
         time_series_query = db.session.query(
             func.date_trunc('day', AuditLog.created_at).label('creation_day'),
-            net_asset_calc
-        ).filter(AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED']))
+            func.count().label('count')
+        ).filter(AuditLog.action == 'ASSET_CREATED')
+        
+        time_series_query = time_series_query.filter(AuditLog.service_name != 'media-service')
         
         if filters.get('start_date'):
             time_series_query = time_series_query.filter(AuditLog.created_at >= filters['start_date'])
@@ -285,7 +306,8 @@ class LogService:
             'actor_id': query_params.get('actor_id'),
             'entity_id': query_params.get('entity_id'),
             'start_date': query_params.get('start_date'),
-            'end_date': query_params.get('end_date')
+            'end_date': query_params.get('end_date'),
+            'log_type': query_params.get('log_type')
         }
         
         requested_campus = query_params.get('campus_id')
@@ -589,6 +611,12 @@ def process_log_event(ch, method, properties, body):
             schema = EventPayloadSchema()
             validated_data = schema.load(message_data)
             
+            # SCARTO LOG MEDIA: Blocchiamo il salvataggio dei log provenienti da media-service
+            if validated_data.get('service_name') == 'media-service':
+                if ch.is_open:
+                    ch.basic_ack(delivery_tag=method.delivery_tag)
+                return
+
             raw_timestamp = validated_data.get('timestamp')
             parsed_created_at = dateutil.parser.isoparse(raw_timestamp) if raw_timestamp else None
 

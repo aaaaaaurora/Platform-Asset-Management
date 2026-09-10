@@ -13,9 +13,14 @@ interface Category {
   name: string;
 }
 
+type LogViewType = 'business' | 'system';
+
 export default function SystemLogs() {
   const { token } = useAuth();
   
+  // Vista corrente: 'business' (Operativi/Filtrabili) di default
+  const [currentView, setCurrentView] = useState<LogViewType>('business');
+
   // Dati
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,9 +45,6 @@ export default function SystemLogs() {
   const [errorMsg, setErrorMsg] = useState("");
   const [exportWarning, setExportWarning] = useState("");
 
-  // =================================================================
-  // INIT: Caricamento filtri (solo 1 volta all'avvio)
-  // =================================================================
   useEffect(() => {
     const fetchFiltersData = async () => {
       if (!token) return;
@@ -62,9 +64,6 @@ export default function SystemLogs() {
     fetchFiltersData();
   }, [token]);
 
-  // =================================================================
-  // FETCH LOGS: Scatta ad ogni cambio pagina o filtri
-  // =================================================================
   const fetchLogs = async (page: number) => {
     if (!token) return;
     setIsLoading(true);
@@ -75,9 +74,13 @@ export default function SystemLogs() {
       const params = new URLSearchParams();
       params.append('page', page.toString());
       params.append('limit', '20');
+      params.append('log_type', currentView); // Passaggio del log_type al backend
       
-      if (selectedCampuses.length > 0) params.append('campus_id', selectedCampuses.join(','));
-      if (selectedCategories.length > 0) params.append('category_id', selectedCategories.join(','));
+      // I filtri si applicano solo se siamo nella vista operativa
+      if (currentView === 'business') {
+        if (selectedCampuses.length > 0) params.append('campus_id', selectedCampuses.join(','));
+        if (selectedCategories.length > 0) params.append('category_id', selectedCategories.join(','));
+      }
 
       const res = await fetch(`${baseUrl}/log/api/logs?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -102,17 +105,13 @@ export default function SystemLogs() {
   };
 
   useEffect(() => {
-    // Azzera la pagina se si cambiano i filtri
     setCurrentPage(1);
-  }, [selectedCampuses, selectedCategories]);
+  }, [selectedCampuses, selectedCategories, currentView]);
 
   useEffect(() => {
     fetchLogs(currentPage);
-  }, [token, currentPage, selectedCampuses, selectedCategories]);
+  }, [token, currentPage, selectedCampuses, selectedCategories, currentView]);
 
-  // =================================================================
-  // UC-AMM-07: ESPORTAZIONE CSV (Con filtri attivi)
-  // =================================================================
   const handleExportCSV = async () => {
     if (logs.length === 0) {
       setExportWarning("Nessun log trovato, esportazione non disponibile.");
@@ -127,8 +126,12 @@ export default function SystemLogs() {
     try {
       const baseUrl = import.meta.env.VITE_API_URL || '';
       const params = new URLSearchParams();
-      if (selectedCampuses.length > 0) params.append('campus_id', selectedCampuses.join(','));
-      if (selectedCategories.length > 0) params.append('category_id', selectedCategories.join(','));
+      params.append('log_type', currentView);
+
+      if (currentView === 'business') {
+        if (selectedCampuses.length > 0) params.append('campus_id', selectedCampuses.join(','));
+        if (selectedCategories.length > 0) params.append('category_id', selectedCategories.join(','));
+      }
 
       const res = await fetch(`${baseUrl}/log/api/logs/export?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -143,7 +146,8 @@ export default function SystemLogs() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Audit_Storico_${new Date().toISOString().split('T')[0]}.csv`;
+      const filePrefix = currentView === 'system' ? 'Log_Sistema' : 'Audit_Operativo';
+      a.download = `${filePrefix}_${new Date().toISOString().split('T')[0]}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -164,27 +168,18 @@ export default function SystemLogs() {
     setSelectedCategories(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
 
-  // =================================================================
-  // UTILITY PER GENERAZIONE NUMERI DI PAGINA
-  // =================================================================
   const getPageNumbers = () => {
-    const delta = 2; // Numero di pagine da mostrare a destra e sinistra della corrente
+    const delta = 2;
     const range = [];
     for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
       range.push(i);
     }
 
-    if (currentPage - delta > 2) {
-      range.unshift("...");
-    }
-    if (currentPage + delta < totalPages - 1) {
-      range.push("...");
-    }
+    if (currentPage - delta > 2) range.unshift("...");
+    if (currentPage + delta < totalPages - 1) range.push("...");
 
     range.unshift(1);
-    if (totalPages > 1) {
-      range.push(totalPages);
-    }
+    if (totalPages > 1) range.push(totalPages);
 
     return range;
   };
@@ -196,8 +191,7 @@ export default function SystemLogs() {
         description="Consulta e scarica l'audit trail completo del sistema."
       />
 
-      {/* HEADER & EXPORT BUTTON */}
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-3xl font-extrabold text-slate-800 dark:text-white tracking-tight">
             Storico Operazioni
@@ -227,106 +221,131 @@ export default function SystemLogs() {
         </button>
       </div>
 
-      {/* BLOCCO FILTRI (DUE COLONNE AFFIANCATE COME NELLA DASHBOARD) */}
-      <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          
-          {/* 1. FILTRO CAMPUS */}
-          <div className="relative">
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Filtro Campus
-            </label>
-            <div 
-              onClick={() => setIsCampusDropdownOpen(!isCampusDropdownOpen)}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
-            >
-              <span className="truncate pr-2">
-                {selectedCampuses.length === 0 
-                  ? "Tutti i Campus" 
-                  : selectedCampuses.length === 1 
-                    ? availableCampuses.find(c => c.id === selectedCampuses[0])?.name || 'Campus Selezionato'
-                    : `${selectedCampuses.length} Campus selezionati`}
-              </span>
-              <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCampusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-            </div>
-
-            {isCampusDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setIsCampusDropdownOpen(false)}></div>
-                <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
-                  <div 
-                    className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
-                    onClick={() => { setSelectedCampuses([]); setIsCampusDropdownOpen(false); }}
-                  >
-                    <div className="w-4 mr-3 flex-none"></div>
-                    Tutti i Campus
-                  </div>
-                  {availableCampuses.map((campus) => (
-                    <label key={campus.id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                      <input
-                        type="checkbox"
-                        checked={selectedCampuses.includes(campus.id)}
-                        onChange={() => toggleCampus(campus.id)}
-                        className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
-                      />
-                      <span className="truncate">{campus.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* 2. FILTRO CATEGORIA */}
-          <div className="relative">
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Filtro Categoria
-            </label>
-            <div 
-              onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
-            >
-              <span className="truncate pr-2">
-                {selectedCategories.length === 0 
-                  ? "Tutte le Categorie" 
-                  : selectedCategories.length === 1 
-                    ? availableCategories.find(c => c._id === selectedCategories[0])?.name || 'Categoria Selezionata'
-                    : `${selectedCategories.length} Categorie selezionate`}
-              </span>
-              <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCategoryDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
-            </div>
-
-            {isCategoryDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setIsCategoryDropdownOpen(false)}></div>
-                <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
-                  <div 
-                    className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
-                    onClick={() => { setSelectedCategories([]); setIsCategoryDropdownOpen(false); }}
-                  >
-                    <div className="w-4 mr-3 flex-none"></div>
-                    Tutte le Categorie
-                  </div>
-                  {availableCategories.map((category) => (
-                    <label key={category._id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
-                      <input
-                        type="checkbox"
-                        checked={selectedCategories.includes(category._id)}
-                        onChange={() => toggleCategory(category._id)}
-                        className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
-                      />
-                      <span className="truncate">{category.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-        </div>
+      {/* TAB SWITCHER */}
+      <div className="mb-6 inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <button
+          onClick={() => setCurrentView('business')}
+          className={`rounded-md px-6 py-2 text-sm font-bold transition-all ${
+            currentView === 'business'
+              ? 'bg-blue-600 text-white shadow'
+              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+          }`}
+        >
+          Log Operativi
+        </button>
+        <button
+          onClick={() => setCurrentView('system')}
+          className={`rounded-md px-6 py-2 text-sm font-bold transition-all ${
+            currentView === 'system'
+              ? 'bg-blue-600 text-white shadow'
+              : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+          }`}
+        >
+          Log di Sistema (Auth)
+        </button>
       </div>
 
-      {/* Avvisi di Sistema */}
+      {/* BLOCCO FILTRI - Mostrato SOLO per i log operativi */}
+      {currentView === 'business' && (
+        <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            
+            {/* 1. FILTRO CAMPUS */}
+            <div className="relative">
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Filtro Campus
+              </label>
+              <div 
+                onClick={() => setIsCampusDropdownOpen(!isCampusDropdownOpen)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
+              >
+                <span className="truncate pr-2">
+                  {selectedCampuses.length === 0 
+                    ? "Tutti i Campus" 
+                    : selectedCampuses.length === 1 
+                      ? availableCampuses.find(c => c.id === selectedCampuses[0])?.name || 'Campus Selezionato'
+                      : `${selectedCampuses.length} Campus selezionati`}
+                </span>
+                <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCampusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+
+              {isCampusDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsCampusDropdownOpen(false)}></div>
+                  <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                    <div 
+                      className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                      onClick={() => { setSelectedCampuses([]); setIsCampusDropdownOpen(false); }}
+                    >
+                      <div className="w-4 mr-3 flex-none"></div>
+                      Tutti i Campus
+                    </div>
+                    {availableCampuses.map((campus) => (
+                      <label key={campus.id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedCampuses.includes(campus.id)}
+                          onChange={() => toggleCampus(campus.id)}
+                          className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                        />
+                        <span className="truncate">{campus.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 2. FILTRO CATEGORIA */}
+            <div className="relative">
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Filtro Categoria
+              </label>
+              <div 
+                onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
+              >
+                <span className="truncate pr-2">
+                  {selectedCategories.length === 0 
+                    ? "Tutte le Categorie" 
+                    : selectedCategories.length === 1 
+                      ? availableCategories.find(c => c._id === selectedCategories[0])?.name || 'Categoria Selezionata'
+                      : `${selectedCategories.length} Categorie selezionate`}
+                </span>
+                <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCategoryDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+
+              {isCategoryDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsCategoryDropdownOpen(false)}></div>
+                  <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                    <div 
+                      className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                      onClick={() => { setSelectedCategories([]); setIsCategoryDropdownOpen(false); }}
+                    >
+                      <div className="w-4 mr-3 flex-none"></div>
+                      Tutte le Categorie
+                    </div>
+                    {availableCategories.map((category) => (
+                      <label key={category._id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedCategories.includes(category._id)}
+                          onChange={() => toggleCategory(category._id)}
+                          className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                        />
+                        <span className="truncate">{category.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {errorMsg && (
         <div className="mb-6 rounded-lg border-l-4 border-rose-500 bg-rose-50 p-4 text-rose-800 shadow-sm">
           <p className="font-semibold">{errorMsg}</p>
@@ -339,9 +358,9 @@ export default function SystemLogs() {
       )}
 
       {/* Tabella Dati */}
-      <LogsTable logs={logs} isLoading={isLoading} />
+      <LogsTable logs={logs} isLoading={isLoading} viewType={currentView} />
 
-      {/* Controlli Paginazione Avanzata */}
+      {/* Controlli Paginazione */}
       {!isLoading && totalPages > 1 && (
         <div className="mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row bg-white p-4 rounded-xl shadow-sm border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
           <span className="text-sm font-medium text-slate-500 dark:text-slate-400">

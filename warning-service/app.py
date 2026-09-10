@@ -254,6 +254,7 @@ def create_warning():
                 "asset_id": str(asset_id_str), 
                 "status": "aperta",
                 "campus_name": local_asset.campus_name, 
+                "category_id": str(local_asset.category_id),
                 "asset_name": local_asset.asset_name   
             }
         )
@@ -426,6 +427,7 @@ def resolve_warning(warning_id_str):
                 "status_nuovo": "chiusa",
                 "maintenance_id": str(new_maintenance.id),
                 "campus_name": local_asset.campus_name if local_asset else None, 
+                "category_id": str(warning.category_id),
                 "asset_name": local_asset.asset_name if local_asset else None    
             }
         )
@@ -520,6 +522,7 @@ def create_maintenance():
                 "asset_id": asset_id_str,
                 "tipo_intervento": m_type_enum.value,
                 "campus_name": local_asset.campus_name, 
+                "category_id": str(local_asset.category_id),
                 "asset_name": local_asset.asset_name    
             }
         )
