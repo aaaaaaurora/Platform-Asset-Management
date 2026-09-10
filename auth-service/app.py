@@ -89,7 +89,7 @@ def verify_google_token(token):
         
     # Un id_token (JWT) è sempre composto da 3 parti separate da punti.
     is_jwt = len(token.split('.')) == 3
-
+ 
     if is_jwt:
         # 1. FLUSSO MOBILE: Validazione id_token
         try:

@@ -266,7 +266,7 @@ def create_warning():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"Errore interno del server: {str(e)}"}), 500
- 
+  
 # ==========================================
 # ENDPOINT: US 6-2
 # ==========================================

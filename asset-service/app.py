@@ -767,8 +767,7 @@ def get_asset(asset_id):
 
     except Exception as e:
         return error_response(f"Errore durante il recupero dell'asset: {str(e)}", 500)
-    
-    
+      
 # ============================================================================
 # ENDPOINT: Aggiornamento di un Asset esistente (metadati e coordinate)
 # ============================================================================

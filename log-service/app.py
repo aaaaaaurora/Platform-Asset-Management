@@ -187,7 +187,7 @@ class AuditLogRepository:
         created_assets = base_query.filter(AuditLog.action == 'ASSET_CREATED').count()
         deleted_assets = base_query.filter(AuditLog.action == 'ASSET_DELETED').count()
         assets_count = max(0, created_assets - deleted_assets)
-        
+         
         created_warnings = base_query.filter(AuditLog.action == 'CREATE_WARNING').count()
         resolved_warnings = base_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
         tickets_count = max(0, created_warnings - resolved_warnings) 
