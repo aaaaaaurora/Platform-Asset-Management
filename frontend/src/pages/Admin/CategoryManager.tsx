@@ -304,7 +304,7 @@ export default function CategoryEditor() {
               </div>
               
               <div>
-                <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Descrizione</label>
+                <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Descrizione (opzionale)</label>
                 <textarea rows={5} value={catDesc} onChange={e => setCatDesc(e.target.value)} placeholder="Dettagli operativi o linee guida..." className="w-full rounded-md border border-slate-300 py-3 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white shadow-sm" />
               </div>
             </div>
@@ -330,7 +330,7 @@ export default function CategoryEditor() {
             {showJsonImport && (
               <div className="p-6 pb-0 border-b border-slate-100">
                 <div className="p-5 rounded-xl border border-slate-300 bg-slate-50 dark:bg-slate-900 shadow-inner animate-fade-in-up">
-                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Importa schema JSON</label>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Configura dinamicamente lo schema JSON</label>
                   <textarea 
                     rows={12} 
                     value={jsonText} 
