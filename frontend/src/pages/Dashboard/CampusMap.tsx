@@ -197,7 +197,7 @@ export default function CampusMap() {
       {campuses.length > 0 && (
         <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0">
           <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 max-w-2xl relative">
+            <div className="flex-1 relative w-full">
               <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Filtro Campus
               </label>
