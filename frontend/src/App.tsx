@@ -10,7 +10,6 @@ import SystemLogs from "./pages/Admin/SystemLogs";
 import NewCampus from './pages/Admin/CreateCampus';
 import CampusList from './pages/Admin/CampusList';
 
-
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 import SignIn from "./pages/AuthPages/SignIn";
 import CreateAsset from './pages/AssetPages/CreateAsset';

@@ -101,7 +101,7 @@ export default function AssetList() {
     fetchStaticData();
   }, [token]);
 
-  // Caricamento Assets in base ai Filtri (Differenziato per Ruolo)
+  // Caricamento Assets in base ai Filtri (Differenziato per Ruolo) 
   const fetchAssets = async () => {
     if (!token) return;
     try {
