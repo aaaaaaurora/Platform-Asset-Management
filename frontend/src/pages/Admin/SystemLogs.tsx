@@ -164,6 +164,31 @@ export default function SystemLogs() {
     setSelectedCategories(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
 
+  // =================================================================
+  // UTILITY PER GENERAZIONE NUMERI DI PAGINA
+  // =================================================================
+  const getPageNumbers = () => {
+    const delta = 2; // Numero di pagine da mostrare a destra e sinistra della corrente
+    const range = [];
+    for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
+      range.push(i);
+    }
+
+    if (currentPage - delta > 2) {
+      range.unshift("...");
+    }
+    if (currentPage + delta < totalPages - 1) {
+      range.push("...");
+    }
+
+    range.unshift(1);
+    if (totalPages > 1) {
+      range.push(totalPages);
+    }
+
+    return range;
+  };
+
   return (
     <>
       <PageMeta
@@ -316,27 +341,46 @@ export default function SystemLogs() {
       {/* Tabella Dati */}
       <LogsTable logs={logs} isLoading={isLoading} />
 
-      {/* Controlli Paginazione */}
+      {/* Controlli Paginazione Avanzata */}
       {!isLoading && totalPages > 1 && (
         <div className="mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row bg-white p-4 rounded-xl shadow-sm border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
           <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
             Mostrando pagina <span className="font-bold text-slate-800 dark:text-white">{currentPage}</span> di {totalPages} 
             <span className="ml-2 text-xs">({totalItems} record totali)</span>
           </span>
-          <div className="flex gap-2">
+          <div className="flex gap-1.5 items-center">
             <button
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors dark:bg-slate-700 dark:border-slate-600 dark:text-white"
             >
-              Precedente
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
             </button>
+
+            {getPageNumbers().map((num, idx) => (
+              num === "..." ? (
+                <span key={`dots-${idx}`} className="px-2 py-1 text-slate-400 font-bold">...</span>
+              ) : (
+                <button
+                  key={num}
+                  onClick={() => setCurrentPage(num as number)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
+                    currentPage === num
+                      ? "bg-blue-600 text-white shadow-sm border border-blue-600"
+                      : "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {num}
+                </button>
+              )
+            ))}
+
             <button
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
-              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors dark:bg-slate-700 dark:border-slate-600 dark:text-white"
             >
-              Successiva
+               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
             </button>
           </div>
         </div>
