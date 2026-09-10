@@ -46,8 +46,9 @@ export default function AssetList() {
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // --- STATI PER I FILTRI OPERATORE (Singola Selezione) ---
-  const [selectedCampus, setSelectedCampus] = useState<string>('');
+  // --- STATI PER I FILTRI OPERATORE (Selezione Multipla Campus) ---
+  const [selectedCampusesOp, setSelectedCampusesOp] = useState<string[]>([]);
+  const [isCampusDropdownOpenOp, setIsCampusDropdownOpenOp] = useState(false);
 
   // --- STATI PER I FILTRI AMMINISTRATORE (Selezione Multipla) ---
   const [selectedCampusesAdmin, setSelectedCampusesAdmin] = useState<string[]>([]);
@@ -90,9 +91,6 @@ export default function AssetList() {
         });
         
         if (campRes.ok) {
-          // Utilizziamo direttamente la risposta del backend che restituisce SOLO
-          // i campus pertinenti per l'utente loggato (Admin o Operatore).
-          // Nessun filtro lato frontend che potrebbe fallire se il token non è aggiornato.
           const userAllowedCampuses = await campRes.json();
           setCampuses(userAllowedCampuses);
         }
@@ -112,10 +110,16 @@ export default function AssetList() {
       const params = new URLSearchParams();
       
       if (isAdmin) {
-        if (selectedCampusesAdmin.length > 0) params.append('campus_id', selectedCampusesAdmin.join(','));
-        if (selectedCategoriesAdmin.length > 0) params.append('category_id', selectedCategoriesAdmin.join(','));
+        if (selectedCampusesAdmin.length > 0) {
+          selectedCampusesAdmin.forEach(id => params.append('campus_id', id));
+        }
+        if (selectedCategoriesAdmin.length > 0) {
+          selectedCategoriesAdmin.forEach(id => params.append('category_id', id));
+        }
       } else {
-        if (selectedCampus) params.append('campus_id', selectedCampus);
+        if (selectedCampusesOp.length > 0) {
+          selectedCampusesOp.forEach(id => params.append('campus_id', id));
+        }
         if (user?.category_id) params.append('category_id', user.category_id);
       }
       
@@ -149,7 +153,7 @@ export default function AssetList() {
 
   useEffect(() => {
     fetchAssets();
-  }, [token, selectedCampus, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters, user, isAdmin]);
+  }, [token, selectedCampusesOp, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters, user, isAdmin]);
 
   // Gestione Reset Filtri Dinamici al cambio categoria
   useEffect(() => {
@@ -164,8 +168,8 @@ export default function AssetList() {
           setSelectedCampusesAdmin([location.state.editCampusId]);
         }
       } else {
-        if (location.state.editCampusId !== selectedCampus) {
-          setSelectedCampus(location.state.editCampusId);
+        if (!selectedCampusesOp.includes(location.state.editCampusId)) {
+          setSelectedCampusesOp([location.state.editCampusId]);
         }
       }
     }
@@ -188,6 +192,10 @@ export default function AssetList() {
 
   const toggleCategoryAdmin = (id: string) => {
     setSelectedCategoriesAdmin(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+  };
+
+  const toggleCampusOp = (id: string) => {
+    setSelectedCampusesOp(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
 
   const handleDynamicFilterChange = (attrName: string, value: string) => {
@@ -445,20 +453,51 @@ export default function AssetList() {
             </div>
           </div>
         ) : (
-          // VISUALE OPERATORE (Singola Tendina Standard)
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Filtro Campus</label>
-              <select 
-                value={selectedCampus}
-                onChange={(e) => setSelectedCampus(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+          // VISUALE OPERATORE (Singola Tendina Multipla Custom)
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="relative">
+              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Filtro Campus
+              </label>
+              <div 
+                onClick={() => setIsCampusDropdownOpenOp(!isCampusDropdownOpenOp)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
               >
-                <option value="">Tutti i Campus</option>
-                {campuses.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                <span className="truncate pr-2">
+                  {selectedCampusesOp.length === 0 
+                    ? "Tutti i Campus" 
+                    : selectedCampusesOp.length === 1 
+                      ? campuses.find(c => c.id === selectedCampusesOp[0])?.name || 'Campus Selezionato'
+                      : `${selectedCampusesOp.length} Campus selezionati`}
+                </span>
+                <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCampusDropdownOpenOp ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+
+              {isCampusDropdownOpenOp && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsCampusDropdownOpenOp(false)}></div>
+                  <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                    <div 
+                      className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                      onClick={() => { setSelectedCampusesOp([]); setIsCampusDropdownOpenOp(false); }}
+                    >
+                      <div className="w-4 mr-3 flex-none"></div>
+                      Tutti i Campus
+                    </div>
+                    {campuses.map((campus) => (
+                      <label key={campus.id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedCampusesOp.includes(campus.id)}
+                          onChange={() => toggleCampusOp(campus.id)}
+                          className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                        />
+                        <span className="truncate">{campus.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

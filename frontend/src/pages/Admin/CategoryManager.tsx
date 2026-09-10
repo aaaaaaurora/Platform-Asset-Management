@@ -286,12 +286,12 @@ export default function CategoryEditor() {
         
         {/* COLONNA SINISTRA: Info Generali */}
         <div className="lg:col-span-1">
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col">
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-none">
+          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700">
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Informazioni Base</h3>
             </div>
             
-            <div className="p-6 space-y-5 flex-1">
+            <div className="p-6 space-y-5">
               <div className="flex gap-4 items-start">
                 <div className="relative">
                   <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Icona</label>
@@ -328,7 +328,7 @@ export default function CategoryEditor() {
                   {showJsonImport ? 'Chiudi JSON' : 'Importa JSON'}
                 </button>
                 <button onClick={() => { setEditingAttr(null); setAttrFormOpen(true); }} className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 border border-blue-600 rounded-md hover:bg-blue-700 transition-colors shadow-sm">
-                  + Aggiungi Singolo
+                  + Aggiungi attributo
                 </button>
               </div>
             </div>
@@ -342,7 +342,7 @@ export default function CategoryEditor() {
                     rows={12} 
                     value={jsonText} 
                     onChange={e => { setJsonText(e.target.value); setJsonError(""); }}
-                    placeholder={`[\n  {\n    "name": "Stato operativo",\n    "type": "enum",\n    "required": true,\n    "filterable": true,\n    "editable": true,\n    "visible": true,\n    "options": [\n      "Nuovo",\n      "In uso",\n      "In manutenzione",\n      "Dismesso"\n    ]\n  }\n]`}
+                    placeholder={`[\n  {\n    "name": "Stato operativo",\n    "type": "enum",\n    "required": true,\n    "filterable": true,\n    "editable": true,\n    "visible": true,\n    "options": [...]\n  }\n]`}
                     className="w-full font-mono text-sm p-4 rounded-lg border border-slate-300 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-green-400 shadow-sm"
                   />
                   {jsonError && <p className="text-sm text-rose-600 font-bold mt-3 bg-rose-50 p-2 rounded border border-rose-100">{jsonError}</p>}
@@ -420,7 +420,7 @@ export default function CategoryEditor() {
       {/* FOOTER AZIONI (Barra inferiore larga) */}
       <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex justify-end gap-4">
         <button onClick={() => navigate('/admin/categories')} disabled={isSubmitting} className="px-6 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition-colors disabled:opacity-50">
-          Annulla Modifiche
+          Annulla modifiche
         </button>
         <button onClick={handleSaveAll} disabled={isSubmitting || !hasChanges} className="px-8 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-md transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:bg-slate-400">
           {isSubmitting ? "Salvataggio in corso..." : (currentCategory ? "Aggiorna categoria" : "Crea nuova categoria")}

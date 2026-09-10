@@ -18,8 +18,8 @@ export default function CampusMap() {
   const [viewState, setViewState] = useState({ longitude: 14.7900, latitude: 40.7700, zoom: 15, pitch: 45, bearing: 0 });
   const [campuses, setCampuses] = useState<any[]>([]);
   
-  // MODIFICA: Inizializzato a vuoto per la selezione di default
   const [selectedCampus, setSelectedCampus] = useState<string>('');
+  const [isCampusDropdownOpen, setIsCampusDropdownOpen] = useState(false);
   
   const [categories, setCategories] = useState<any[]>([]);
   const [maxBounds, setMaxBounds] = useState<[number, number, number, number] | undefined>(undefined);
@@ -37,7 +37,6 @@ export default function CampusMap() {
           const coords = { longitude: position.coords.longitude, latitude: position.coords.latitude };
           setUserLocation(coords);
           
-          // Se non è stato imposto un campus specifico dal router, vai alla posizione utente
           if (!focusCampusId) {
             setViewState(prev => ({ ...prev, ...coords }));
           }
@@ -67,7 +66,6 @@ export default function CampusMap() {
           if (focusCampusId && realCampuses.some((c: any) => c.id === focusCampusId)) {
             setSelectedCampus(focusCampusId);
           } else {
-            // MODIFICA: Assicura che si parta dalla voce vuota, non dal primo array
             setSelectedCampus('');
           }
         } catch (error) { console.error("Errore recupero campus:", error); }
@@ -95,7 +93,6 @@ export default function CampusMap() {
         const params = new URLSearchParams();
         if (selectedCampus) params.append('campus_id', selectedCampus);
         
-        // Se l'utente è un operatore, richiediamo al backend solo gli asset della sua categoria
         if (user?.role === 'OPERATORE' && user?.category_id) {
           params.append('category_id', user.category_id);
         }
@@ -110,7 +107,6 @@ export default function CampusMap() {
         
         let fetchedAssets = data.assets || [];
         
-        // Filtro di sicurezza aggiuntivo lato frontend
         if (user?.role === 'OPERATORE' && user?.category_id) {
           fetchedAssets = fetchedAssets.filter((a: any) => a.category_id === user.category_id);
         }
@@ -119,11 +115,10 @@ export default function CampusMap() {
       } catch (error) { console.error("Errore recupero asset:", error); }
     };
     
-    // MODIFICA: Effettua il fetch degli asset solo se è stato effettivamente selezionato un campus
     if (selectedCampus) {
       fetchAssets();
     } else {
-      setAssets([]); // Se torno su "Seleziona...", svuoto la mappa
+      setAssets([]); 
     }
   }, [selectedCampus, token, user]);
 
@@ -202,23 +197,51 @@ export default function CampusMap() {
       {campuses.length > 0 && (
         <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0">
           <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
+            <div className="flex-1 max-w-2xl relative">
               <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Filtro Campus
               </label>
-              <select
-                value={selectedCampus}
-                onChange={(e) => { setSelectedCampus(e.target.value); setSelectedAsset(null); }}
-                className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+              <div 
+                onClick={() => setIsCampusDropdownOpen(!isCampusDropdownOpen)}
+                className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
               >
-                {/* MODIFICA: Voce di default */}
-                <option value="" disabled>Seleziona un campus...</option>
-                {campuses.map(campus => (
-                  <option key={campus.id} value={campus.id}>
-                    {campus.name}
-                  </option>
-                ))}
-              </select>
+                <span className="truncate pr-2">
+                  {selectedCampus === '' 
+                    ? "Tutti i Campus" 
+                    : campuses.find(c => c.id === selectedCampus)?.name || 'Campus Selezionato'}
+                </span>
+                <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCampusDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+              </div>
+
+              {isCampusDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsCampusDropdownOpen(false)}></div>
+                  <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                    <div 
+                      className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                      onClick={() => { setSelectedCampus(''); setSelectedAsset(null); setIsCampusDropdownOpen(false); }}
+                    >
+                      <div className="w-4 mr-3 flex-none"></div>
+                      Tutti i Campus
+                    </div>
+                    {campuses.map((campus) => (
+                      <div 
+                        key={campus.id} 
+                        className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0"
+                        onClick={() => { setSelectedCampus(campus.id); setSelectedAsset(null); setIsCampusDropdownOpen(false); }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedCampus === campus.id}
+                          readOnly
+                          className="mr-3 h-4 w-4 flex-none rounded-full border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                        />
+                        <span className="truncate">{campus.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

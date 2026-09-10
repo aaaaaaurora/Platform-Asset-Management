@@ -907,9 +907,13 @@ def get_assets():
             
         requested_campus = request.args.get('campus_id')
         if requested_campus:
-            # Verifica che il campus richiesto sia tra quelli di pertinenza
-            if requested_campus in user_campuses:
-                mongo_query['campus_id'] = requested_campus
+            # Parsing della stringa per supportare le selezioni multiple ("id1,id2")
+            requested_list = [c.strip() for c in requested_campus.split(',')]
+            # Verifica che i campus richiesti siano tra quelli di pertinenza
+            valid_campuses = [c for c in requested_list if c in user_campuses]
+            
+            if valid_campuses:
+                mongo_query['campus_id'] = {'$in': valid_campuses}
             else:
                 return jsonify({"assets": [], "pagination": {}}), 200
         else:
@@ -919,9 +923,14 @@ def get_assets():
     # 2. Filtro per Categoria Strutturale
     category_id = request.args.get('category_id')
     if category_id:
-        if not ObjectId.is_valid(category_id):
-            return error_response("ID Categoria non valido", 400)
-        mongo_query['category_id'] = category_id
+        # Parsing della stringa per supportare le selezioni multiple ("id1,id2")
+        category_list = [c.strip() for c in category_id.split(',')]
+        valid_categories = [c for c in category_list if ObjectId.is_valid(c)]
+        
+        if valid_categories:
+            mongo_query['category_id'] = {'$in': valid_categories}
+        else:
+            return error_response("ID Categoria non validi", 400)
 
     # 3. Filtri Dinamici sugli Attributi (US 5-2)
     def parse_filter_value(v):

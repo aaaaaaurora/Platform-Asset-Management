@@ -21,7 +21,26 @@ export default function TimeSeriesChart({ timeSeries }: TimeSeriesChartProps) {
       type: 'area', 
       toolbar: { show: false }, 
       fontFamily: 'inherit',
-      zoom: { enabled: false }
+      zoom: { enabled: false },
+      locales: [{
+        name: 'it',
+        options: {
+          months: ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'],
+          shortMonths: ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'],
+          days: ['Domenica', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato'],
+          shortDays: ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'],
+          toolbar: {
+            download: 'Scarica',
+            selection: 'Selezione',
+            selectionZoom: 'Zoom Selezione',
+            zoomIn: 'Zoom In',
+            zoomOut: 'Zoom Out',
+            pan: 'Sposta',
+            reset: 'Ripristina Zoom',
+          }
+        }
+      }],
+      defaultLocale: 'it'
     },
     colors: ['#3B82F6'],
     fill: {

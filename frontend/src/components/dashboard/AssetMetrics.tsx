@@ -16,7 +16,7 @@ export default function AssetMetrics({ totals }: AssetMetricsProps) {
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 transition-transform hover:-translate-y-1 duration-300">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Asset Attivi</span>
+            <span className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Assets Attivi</span>
             <h4 className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
               {data.assets}
             </h4>
@@ -50,7 +50,7 @@ export default function AssetMetrics({ totals }: AssetMetricsProps) {
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 transition-transform hover:-translate-y-1 duration-300">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Interventi Conclusi</span>
+            <span className="text-sm font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Segnalazioni Risolte</span>
             <h4 className="text-3xl font-extrabold text-slate-900 dark:text-white mt-1">
               {data.interventions}
             </h4>

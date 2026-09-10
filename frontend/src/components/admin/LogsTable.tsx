@@ -43,7 +43,7 @@ export interface AuditLog {
       }
   
       // Se per qualche motivo manca l'email, mostriamo un testo generico invece dell'ID
-      return <span className="text-slate-400 italic text-xs">Utente sconosciuto</span>;
+      return <span className="text-slate-400 italic text-xs">Nessun utente coinvolto.</span>;
     };
   
     return (

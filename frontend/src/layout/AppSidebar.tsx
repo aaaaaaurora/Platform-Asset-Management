@@ -87,7 +87,7 @@ const getNavItemsByRole = (role?: string): NavItem[] => {
         ...baseMenu,
         { icon: DashboardIcon, name: "Dashboard", path: "/dashboard" },
         { icon: UsersIcon, name: "Gestione Operatori", path: "/admin/operators" },
-        { icon: CategoryIcon, name: "Gestione Categorie Asset", path: "/admin/categories" },
+        { icon: CategoryIcon, name: "Gestione Categorie", path: "/admin/categories" },
         { icon: CampusIcon, name: "Gestione Campus", path: "/admin/campuses" },
         { icon: ListIcon, name: "Lista Assets", path: "/assets/list" },
         { icon: HistoryIcon, name: "Storico Operazioni", path: "/admin/history" }

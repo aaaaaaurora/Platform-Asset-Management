@@ -28,8 +28,8 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
     },
     dataLabels: { 
       enabled: true, 
-      offsetX: 15,
-      style: { colors: ['#475569'], fontSize: '13px', fontWeight: 800 }
+      offsetX: -10, // Spinge il numero verso l'interno della barra
+      style: { colors: ['#ffffff'], fontSize: '11px', fontWeight: 700 } // Più piccolo, bianco e meno invasivo
     },
     xaxis: {
       categories: labels,
