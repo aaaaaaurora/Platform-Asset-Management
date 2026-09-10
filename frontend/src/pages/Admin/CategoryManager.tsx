@@ -217,6 +217,16 @@ export default function CategoryEditor() {
   };
 
   const setAttrDeprecationStatus = (attrName: string, deprecate: boolean) => {
+    //Impedisce l'eliminazione se c'è un solo attributo non deprecato
+    if (deprecate) {
+      const activeAttributesCount = localAttributes.filter(a => a.status !== 'unavailable' && a.name !== attrName).length;
+      if (activeAttributesCount === 0) {
+        setError("Impossibile eliminare l'unico attributo rimanente. Una categoria deve avere almeno un attributo attivo.");
+        setTimeout(() => setError(""), 4000);
+        return;
+      }
+    }
+    
     setLocalAttributes(prev => prev.map(a => a.name === attrName ? { ...a, status: deprecate ? 'unavailable' : 'active' } : a));
   };
 
@@ -393,7 +403,19 @@ export default function CategoryEditor() {
                             <>
                               <button onClick={() => { setEditingAttr(attr); setAttrFormOpen(true); }} className="text-xs font-bold text-blue-600 hover:text-blue-800 transition-colors">Modifica</button>
                               {!currentCategory || !(attr as any)._originalName ? (
-                                <button onClick={() => setLocalAttributes(prev => prev.filter(a => a.name !== attr.name))} className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors">Rimuovi</button>
+                                <button 
+                                  onClick={() => {
+                                    if (localAttributes.filter(a => a.status !== 'unavailable').length <= 1) {
+                                      setError("Impossibile rimuovere l'unico attributo. Una categoria deve avere almeno un attributo.");
+                                      setTimeout(() => setError(""), 4000);
+                                      return;
+                                    }
+                                    setLocalAttributes(prev => prev.filter(a => a.name !== attr.name))
+                                  }} 
+                                  className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors"
+                                >
+                                  Rimuovi
+                                </button>
                               ) : (
                                 <button onClick={() => setAttrDeprecationStatus(attr.name, true)} className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors">Elimina</button>
                               )}
