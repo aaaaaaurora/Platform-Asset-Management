@@ -169,7 +169,7 @@ export default function CreateCampusPage() {
               {/* Box Nome Identificativo (Metà larghezza) */}
               <div className="flex-1 w-full">
                 <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  Nome Identificativo Area <span className="text-rose-500">*</span>
+                  Nome identificativo area <span className="text-rose-500">*</span>
                 </label>
                 <textarea
                   rows={2}
@@ -207,7 +207,7 @@ export default function CreateCampusPage() {
               {/* Box Note Descrittive (Metà larghezza esatta come il Nome) */}
               <div className="flex-1 w-full">
                 <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  Note Descrittive (Opzionale)
+                  Descrizione
                 </label>
                 <textarea
                   rows={2}

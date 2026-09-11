@@ -13,7 +13,6 @@ import csv
 import io
 from flask import Response
 import dateutil.parser
-from flask_socketio import SocketIO
 
 # Importiamo il gestore centralizzato per RabbitMQ (dalla cartella condivisa)
 from shared_utils.messaging import RabbitMQManager
@@ -29,8 +28,6 @@ logging.basicConfig(
 logger = logging.getLogger('log-service')
 
 app = Flask(__name__)
-
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5433/log_db')
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
@@ -593,7 +590,7 @@ def get_dashboard_charts_api():
 
 
 # ============================================================================
-# 8. RABBITMQ CONSUMER BACKGROUND THREAD CON WEBSOCKET
+# 8. RABBITMQ CONSUMER BACKGROUND THREAD
 # ============================================================================
 
 def process_log_event(ch, method, properties, body):
@@ -623,13 +620,7 @@ def process_log_event(ch, method, properties, body):
                 created_at=parsed_created_at  
             )
             
-            AuditLogRepository.insert(log_entry)
-            
-            # <-- EMISSIONE WEBSOCKET DOPO IL SALVATAGGIO REALE -->
-            socketio.emit('new_log_event', {
-                'action': log_entry.action,
-                'service': log_entry.service_name
-            })
+            AuditLogRepository.insert(log_entry)            
             
             if ch.is_open:
                 ch.basic_ack(delivery_tag=method.delivery_tag)
@@ -672,4 +663,4 @@ consumer_thread = threading.Thread(target=start_mq_consumer, daemon=True)
 consumer_thread.start()
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000)

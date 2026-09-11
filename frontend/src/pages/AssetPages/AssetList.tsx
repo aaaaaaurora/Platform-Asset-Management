@@ -114,14 +114,14 @@ export default function AssetList() {
       
       if (isAdmin) {
         if (selectedCampusesAdmin.length > 0) {
-          selectedCampusesAdmin.forEach(id => params.append('campus_id', id));
+          params.append('campus_id', selectedCampusesAdmin.join(','));
         }
         if (selectedCategoriesAdmin.length > 0) {
-          selectedCategoriesAdmin.forEach(id => params.append('category_id', id));
+          params.append('category_id', selectedCategoriesAdmin.join(','));
         }
       } else {
         if (selectedCampusesOp.length > 0) {
-          selectedCampusesOp.forEach(id => params.append('campus_id', id));
+          params.append('campus_id', selectedCampusesOp.join(','));
         }
         if (user?.category_id) params.append('category_id', user.category_id);
       }
@@ -266,10 +266,10 @@ export default function AssetList() {
       const params = new URLSearchParams();
 
       if (selectedCampusesAdmin.length > 0) {
-        selectedCampusesAdmin.forEach(id => params.append('campus_id', id));
+        params.append('campus_id', selectedCampusesAdmin.join(','));
       }
       if (selectedCategoriesAdmin.length > 0) {
-        selectedCategoriesAdmin.forEach(id => params.append('category_id', id));
+        params.append('category_id', selectedCategoriesAdmin.join(','));
       }
       
       Object.entries(dynamicFilters).forEach(([key, value]) => {

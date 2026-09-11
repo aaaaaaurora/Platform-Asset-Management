@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import PageMeta from "../../components/common/PageMeta";
 import { useAuth } from "../../context/AuthContext";
-import { io } from "socket.io-client"; // <-- AGGIUNTA: Import WebSocket
 import LogsTable, { AuditLog } from "../../components/admin/LogsTable";
 
 interface Campus {
@@ -46,13 +45,6 @@ export default function SystemLogs() {
   const [errorMsg, setErrorMsg] = useState("");
   const [exportWarning, setExportWarning] = useState("");
 
-  // <-- AGGIUNTA: REF PER I FILTRI WEBSOCKET -->
-  // Serve al WebSocket per leggere i filtri correnti senza doversi ricollegare a ogni cambio di stato
-  const filtersRef = useRef({ selectedCampuses, selectedCategories, token, currentView, currentPage });
-  useEffect(() => {
-    filtersRef.current = { selectedCampuses, selectedCategories, token, currentView, currentPage };
-  }, [selectedCampuses, selectedCategories, token, currentView, currentPage]);
-
   useEffect(() => {
     const fetchFiltersData = async () => {
       if (!token) return;
@@ -82,7 +74,7 @@ export default function SystemLogs() {
       const params = new URLSearchParams();
       params.append('page', page.toString());
       params.append('limit', '20');
-      params.append('log_type', currentView); // Passaggio del log_type al backend
+      params.append('log_type', currentView);
       
       // I filtri si applicano solo se siamo nella vista operativa
       if (currentView === 'business') {
@@ -119,50 +111,6 @@ export default function SystemLogs() {
   useEffect(() => {
     fetchLogs(currentPage);
   }, [token, currentPage, selectedCampuses, selectedCategories, currentView]);
-
-  // <-- AGGIUNTA: CONNESSIONE WEBSOCKET -->
-  useEffect(() => {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const socket = io(baseUrl, { 
-      path: '/api/log/socket.io',
-      transports: ['polling'] });
-
-    socket.on('new_log_event', async (data) => {
-      const { selectedCampuses: sc, selectedCategories: cat, token: t, currentView: cv, currentPage: cp } = filtersRef.current;
-      if (!t) return;
-      
-      // Filtro intelligente: non disturbiamo il backend se l'evento non riguarda la vista corrente
-      if (cv === 'system' && data.service !== 'auth-service') return;
-      if (cv === 'business' && data.service === 'auth-service') return;
-
-      const apiUrl = import.meta.env.VITE_API_URL || '';
-      const params = new URLSearchParams();
-      params.append('page', cp.toString());
-      params.append('limit', '20');
-      params.append('log_type', cv);
-      
-      if (cv === 'business') {
-        if (sc.length > 0) params.append('campus_id', sc.join(','));
-        if (cat.length > 0) params.append('category_id', cat.join(','));
-      }
-
-      try {
-        const res = await fetch(`${apiUrl}/log/api/logs?${params.toString()}`, { 
-          headers: { Authorization: `Bearer ${t}` } 
-        });
-        if (res.ok) {
-          const resData = await res.json();
-          setLogs(resData.logs || []);
-          setTotalPages(resData.total_pages || 1);
-          setTotalItems(resData.total_items || 0);
-        }
-      } catch (e) {
-        console.error("Errore fetch background websocket:", e);
-      }
-    });
-
-    return () => { socket.disconnect(); };
-  }, []);
 
   const handleExportCSV = async () => {
     if (logs.length === 0) {
