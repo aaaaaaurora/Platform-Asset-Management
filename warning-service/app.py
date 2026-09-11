@@ -9,7 +9,7 @@ from sqlalchemy import text
 import json
 import threading
 
-# Assumo la presenza del modulo condiviso come negli altri servizi 
+# Assumo la presenza del modulo condiviso come negli altri servizi
 from shared_utils.messaging import RabbitMQManager 
 
 app = Flask(__name__)

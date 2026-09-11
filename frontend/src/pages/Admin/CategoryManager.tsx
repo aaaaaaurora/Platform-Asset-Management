@@ -433,7 +433,7 @@ export default function CategoryEditor() {
         </div>
 
         {/* FOOTER AZIONI */}
-        <div className="sticky bottom-6 z-40 mt-8 p-4 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 transition-all">
+        <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="w-full sm:w-auto">
             {currentCategory && (
               <button onClick={() => setDeleteCategoryAlert(true)} className="w-full sm:w-auto px-4 py-2.5 text-sm font-bold text-rose-600 border border-rose-200 bg-white hover:bg-rose-50 rounded-lg shadow-sm transition-colors flex justify-center items-center gap-2">

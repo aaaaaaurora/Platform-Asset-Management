@@ -162,8 +162,8 @@ export default function CreateCampusPage() {
               <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
                 Nome Identificativo Area <span className="text-rose-500">*</span>
               </label>
-              <input
-                type="text"
+              <textarea
+                rows={2}
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
@@ -177,7 +177,7 @@ export default function CreateCampusPage() {
                 }}
                 disabled={isSaving}
                 placeholder="[Nome Università], [Sede]"
-                className="h-11 w-full rounded-lg border border-slate-300 bg-transparent px-4 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white shadow-sm"
+                className="w-full resize-none rounded-lg border border-slate-300 bg-transparent px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white shadow-sm"
               />
               <p className="mt-1.5 text-xs text-slate-500">
                 Il nome inserito verrà utilizzato per ricercare i confini.
@@ -200,12 +200,12 @@ export default function CreateCampusPage() {
               <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
                 Note Descrittive (Opzionale)
               </label>
-              <input
-                type="text"
+              <textarea
+                rows={2}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 disabled={isSaving}
-                className="h-11 w-full rounded-lg border border-slate-300 bg-transparent px-4 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white shadow-sm"
+                className="w-full resize-none rounded-lg border border-slate-300 bg-transparent px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white shadow-sm"
                 placeholder="Inserisci dettagli aggiuntivi..."
               />
             </div>
@@ -239,8 +239,8 @@ export default function CreateCampusPage() {
 
       </div>
 
-      {/* FOOTER AZIONI (Floating Sticky Bar) */}
-      <div className="sticky bottom-6 z-40 mt-8 p-4 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl flex flex-col sm:flex-row justify-end items-center gap-4 transition-all">
+      {/* FOOTER AZIONI */}
+      <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-end items-center gap-4">
         <div className="flex w-full sm:w-auto gap-3">
           <button
             type="button"
