@@ -151,17 +151,12 @@ class AuditLogRepository:
             # Log di sistema: solo auth-service, nessun filtro campus/categoria applicato
             query = query.filter(AuditLog.service_name == 'auth-service')
         elif log_type == 'business':
-            # Log operativi: escludi auth-service, applica filtri territoriali/categoria
+            # Log operativi: escludi auth-service, applica filtri territoriali/categoria rigorosi
             query = query.filter(AuditLog.service_name != 'auth-service')
             
             campus_ids = filters.get('campus_ids')
             if campus_ids:
-                query = query.filter(
-                    or_(
-                        AuditLog.payload['campus_id'].astext.in_(campus_ids),
-                        AuditLog.payload['campus_id'].astext == None
-                    )
-                )
+                query = query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
                 
             category_ids = filters.get('category_ids')
             if category_ids:
@@ -170,19 +165,14 @@ class AuditLogRepository:
             # Comportamento di default
             campus_ids = filters.get('campus_ids')
             if campus_ids:
-                query = query.filter(
-                    or_(
-                        AuditLog.payload['campus_id'].astext.in_(campus_ids),
-                        AuditLog.payload['campus_id'].astext == None
-                    )
-                )
+                query = query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
                 
             category_ids = filters.get('category_ids')
             if category_ids:
                 query = query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
 
         return query.order_by(AuditLog.created_at.desc())
-
+    
     @staticmethod
     def get_logs(filters: dict, page: int = 1, per_page: int = 50):
         query = AuditLogRepository._build_filter_query(filters)
@@ -199,7 +189,7 @@ class AuditLogRepository:
 
     @staticmethod
     def get_dashboard_metrics(filters: dict) -> dict:
-        def apply_base_filters(query, apply_category=True):
+        def apply_base_filters(query):
             query = query.filter(AuditLog.service_name != 'media-service')
             if filters.get('start_date'):
                 query = query.filter(AuditLog.created_at >= filters['start_date'])
@@ -207,18 +197,18 @@ class AuditLogRepository:
                 query = query.filter(AuditLog.created_at <= filters['end_date'])
             if filters.get('campus_ids'):
                 query = query.filter(AuditLog.payload['campus_id'].astext.in_(filters['campus_ids']))
-            if apply_category and filters.get('category_ids'):
+            if filters.get('category_ids'):
                 query = query.filter(AuditLog.payload['category_id'].astext.in_(filters['category_ids']))
             return query
 
-        # Conteggio Asset (con filtro categoria applicato)
-        asset_query = apply_base_filters(db.session.query(AuditLog), apply_category=True)
+        # Conteggio Asset 
+        asset_query = apply_base_filters(db.session.query(AuditLog))
         created_assets = asset_query.filter(AuditLog.action == 'ASSET_CREATED').count()
         deleted_assets = asset_query.filter(AuditLog.action == 'ASSET_DELETED').count()
         assets_count = max(0, created_assets - deleted_assets)
         
-        # Conteggio Segnalazioni (filtro categoria IGNORATO per evitare il bug del ritorno a 0)
-        warning_query = apply_base_filters(db.session.query(AuditLog), apply_category=False)
+        # Conteggio Segnalazioni 
+        warning_query = apply_base_filters(db.session.query(AuditLog))
         created_warnings = warning_query.filter(AuditLog.action == 'CREATE_WARNING').count()
         resolved_warnings = warning_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
         tickets_count = max(0, created_warnings - resolved_warnings) 
@@ -236,14 +226,14 @@ class AuditLogRepository:
         category_query = db.session.query(category_label, net_asset_calc).filter(
             AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
         )
-        category_query = apply_base_filters(category_query, apply_category=True)
+        category_query = apply_base_filters(category_query)
         category_dist_results = category_query.group_by('category_label').having(net_asset_calc > 0).all()
         
         campus_label = func.coalesce(AuditLog.payload['campus_name'].astext, AuditLog.payload['campus_id'].astext).label('campus_label')
         campus_query = db.session.query(campus_label, net_asset_calc).filter(
             AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
         )
-        campus_query = apply_base_filters(campus_query, apply_category=True)
+        campus_query = apply_base_filters(campus_query)
         campus_dist_results = campus_query.group_by('campus_label').having(net_asset_calc > 0).all()
 
         return {
@@ -260,7 +250,6 @@ class AuditLogRepository:
     
     @staticmethod
     def get_dashboard_charts(filters: dict) -> dict:
-        # Modificato per contare ESCLUSIVAMENTE gli ASSET_CREATED senza sottrarre gli eliminati
         time_series_query = db.session.query(
             func.date_trunc('day', AuditLog.created_at).label('creation_day'),
             func.count().label('count')
@@ -311,7 +300,7 @@ class LogService:
             'entity_id': query_params.get('entity_id'),
             'start_date': query_params.get('start_date'),
             'end_date': query_params.get('end_date'),
-            'log_type': query_params.get('log_type')  # Nuovo parametro
+            'log_type': query_params.get('log_type')
         }
         
         requested_campus = query_params.get('campus_id')

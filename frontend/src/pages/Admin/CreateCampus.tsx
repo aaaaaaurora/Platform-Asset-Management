@@ -113,7 +113,7 @@ export default function CreateCampusPage() {
   };
 
   return (
-    <>
+    <div className="max-w-5xl mx-auto pb-4">
       <PageMeta
         title="Registrazione Nuovo Campus | Asset Management"
         description="Aggiungi un nuovo polo territoriale alla piattaforma tracciandone i confini."
@@ -134,98 +134,85 @@ export default function CreateCampusPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Colonna Sinistra: Form e Controlli */}
-        <div className="flex flex-col gap-6 lg:col-span-1">
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            
-            {errorMsg && (
-              <div className="mb-6 rounded-lg border-l-4 border-rose-500 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
-                {errorMsg}
-              </div>
-            )}
-            
-            {successMsg && (
-              <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
-                {successMsg}
-              </div>
-            )}
+      {/* MESSAGGI DI STATO */}
+      {errorMsg && (
+        <div className="mb-6 rounded-lg border-l-4 border-rose-500 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+          {errorMsg}
+        </div>
+      )}
+      {successMsg && (
+        <div className="mb-6 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+          {successMsg}
+        </div>
+      )}
 
-            <div className="space-y-5">
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  Nome Identificativo Area <span className="text-rose-500">*</span>
-                </label>
-                <div className="flex flex-col gap-2 xl:flex-row">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => {
-                      setSearchQuery(e.target.value);
-                      setGeoJsonData(null); // Resetta la mappa se l'utente cambia il nome
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !isSearching && !isSaving && searchQuery.trim()) {
-                        e.preventDefault();
-                        handleSearchArea();
-                      }
-                    }}
-                    disabled={isSaving}
-                    placeholder="[Nome Università], [Comune]"
-                    className="w-full rounded-lg border border-slate-300 bg-transparent px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white"
-                  />
-                  <button
-                    onClick={handleSearchArea}
-                    disabled={isSearching || isSaving || !searchQuery.trim()}
-                    className="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-slate-700 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
-                  >
-                    {isSearching ? 'Ricerca...' : 'Trova Area'}
-                  </button>
-                </div>
-                <p className="mt-1.5 text-xs text-slate-500">
-                  Il nome inserito verrà utilizzato per ricercare i confini geografici.
-                </p>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
-                  Note Descrittive (Opzionale)
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+      <div className="flex flex-col gap-6 items-stretch">
+        
+        {/* BLOCCO SUPERIORE: Informazioni Base */}
+        <div className="w-full bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col">
+          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-none">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Informazioni Base</h3>
+          </div>
+          
+          <div className="p-6 space-y-5 flex-1">
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Nome Identificativo Area <span className="text-rose-500">*</span>
+              </label>
+              <div className="flex flex-col gap-2 xl:flex-row">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setGeoJsonData(null); // Resetta la mappa se l'utente cambia il nome
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isSearching && !isSaving && searchQuery.trim()) {
+                      e.preventDefault();
+                      handleSearchArea();
+                    }
+                  }}
                   disabled={isSaving}
-                  rows={3}
-                  className="w-full resize-none rounded-lg border border-slate-300 bg-transparent px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white"
-                  placeholder="Inserisci dettagli aggiuntivi..."
+                  placeholder="[Nome Università], [Comune]"
+                  className="w-full rounded-lg border border-slate-300 bg-transparent px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white"
                 />
+                <button
+                  onClick={handleSearchArea}
+                  disabled={isSearching || isSaving || !searchQuery.trim()}
+                  className="inline-flex shrink-0 items-center justify-center rounded-lg bg-slate-800 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-slate-700 disabled:opacity-50 dark:bg-blue-600 dark:hover:bg-blue-500"
+                >
+                  {isSearching ? 'Ricerca...' : 'Trova Area'}
+                </button>
               </div>
+              <p className="mt-1.5 text-xs text-slate-500">
+                Il nome inserito verrà utilizzato per ricercare i confini geografici.
+              </p>
             </div>
 
-            <div className="mt-8 flex items-center justify-between gap-4 border-t border-slate-100 pt-6 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => navigate(-1)}
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Note Descrittive (Opzionale)
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
                 disabled={isSaving}
-                className="rounded-lg px-4 py-2.5 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={handleSaveCampus}
-                disabled={!geoJsonData || isSaving}
-                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isSaving ? 'Salvataggio...' : 'Conferma e Salva'}
-              </button>
+                rows={3}
+                className="w-full resize-none rounded-lg border border-slate-300 bg-transparent px-4 py-2.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white"
+                placeholder="Inserisci dettagli aggiuntivi..."
+              />
             </div>
           </div>
         </div>
 
-        {/* Colonna Destra: Anteprima Cartografica */}
-        <div className="flex flex-col gap-4 lg:col-span-2">
-          <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-            <h3 className="mb-4 text-lg font-bold text-slate-800 dark:text-white">Anteprima Geografica</h3>
+        {/* BLOCCO INFERIORE: Anteprima Cartografica */}
+        <div className="w-full bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 flex flex-col">
+          <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex-none">
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Anteprima Geografica</h3>
+          </div>
+          
+          <div className="p-6 flex-1">
             <CampusMapPreview geoJsonData={geoJsonData} />
             
             {geoJsonData && (
@@ -242,7 +229,29 @@ export default function CreateCampusPage() {
             )}
           </div>
         </div>
+
       </div>
-    </>
+
+      {/* FOOTER AZIONI (Floating Sticky Bar) */}
+      <div className="sticky bottom-6 z-40 mt-8 p-4 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl flex flex-col sm:flex-row justify-end items-center gap-4 transition-all">
+        <div className="flex w-full sm:w-auto gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            disabled={isSaving}
+            className="flex-1 sm:flex-none px-6 py-2.5 text-sm font-bold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-sm transition-colors disabled:opacity-50"
+          >
+            Annulla
+          </button>
+          <button
+            onClick={handleSaveCampus}
+            disabled={!geoJsonData || isSaving}
+            className="flex-1 sm:flex-none px-8 py-2.5 text-sm font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-md transition-all focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-slate-400"
+          >
+            {isSaving ? 'Salvataggio...' : 'Conferma e Salva'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

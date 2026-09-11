@@ -44,7 +44,7 @@ export default function CategoryDistributionChart({ distributionData }: Category
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 h-full flex flex-col">
       <div className="mb-6">
         <h4 className="text-xl font-extrabold text-slate-900 dark:text-white">Ripartizione Categorie</h4>
-        <p className="text-sm font-medium text-slate-500">Asset attivi divisi per tipologia</p>
+        <p className="text-sm font-medium text-slate-500">Visualizza gli assets attivi divisi per tipologia</p>
       </div>
 
       <div className="flex-1 flex items-center justify-center">

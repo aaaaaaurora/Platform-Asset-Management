@@ -99,7 +99,9 @@ export default function Home() {
   // <-- AGGIUNTA: CONNESSIONE WEBSOCKET (Fetch Silenzioso) -->
   useEffect(() => {
     const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const socket = io(baseUrl, { transports: ['websocket', 'polling'] });
+    const socket = io(baseUrl, { 
+      path: '/api/log/socket.io',
+      transports: ['polling'] });
 
     socket.on('new_log_event', async () => {
       const { selectedCampuses: sc, selectedCategories: cat, token: t } = filtersRef.current;

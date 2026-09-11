@@ -65,7 +65,7 @@ export default function CampusDistributionChart({ distributionData }: CampusDist
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-800 h-full flex flex-col">
       <div className="mb-4">
         <h4 className="text-xl font-extrabold text-slate-900 dark:text-white">Distribuzione Territoriale</h4>
-        <p className="text-sm font-medium text-slate-500">Confronto volumi tra poli universitari</p>
+        <p className="text-sm font-medium text-slate-500">Confronta i volumi tra poli universitari</p>
       </div>
 
       <div className="flex-1 w-full overflow-x-hidden overflow-y-auto">
