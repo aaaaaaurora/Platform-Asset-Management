@@ -52,6 +52,7 @@ export default function CategoryEditor() {
           setLocalAttributes(data.attributes.map((a: any) => ({ ...a, _originalName: a.name })));
         } catch (err: any) {
           setError(err.message);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
         } finally {
           setIsLoading(false);
         }
@@ -78,8 +79,16 @@ export default function CategoryEditor() {
 
   // SALVATAGGIO (Creazione o Modifica)
   const handleSaveAll = async () => {
-    if (localAttributes.length === 0) return setError("Aggiungi almeno un attributo.");
-    if (!catName.trim()) return setError("Il nome della categoria è obbligatorio.");
+    if (localAttributes.length === 0) {
+      setError("Aggiungi almeno un attributo.");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    if (!catName.trim()) {
+      setError("Il nome della categoria è obbligatorio.");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     
     setIsSubmitting(true); 
     setError(""); 
@@ -105,6 +114,7 @@ export default function CategoryEditor() {
         }
         
         setSuccessMsg("Categoria creata con successo!");
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         setTimeout(() => navigate('/admin/categories'), 1500);
 
       } else {
@@ -148,10 +158,12 @@ export default function CategoryEditor() {
           }
         }
         setSuccessMsg("Tutte le modifiche sono state salvate!");
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         setTimeout(() => navigate('/admin/categories'), 1500);
       }
     } catch (err: any) { 
-      setError(err.message); 
+      setError(err.message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally { 
       setIsSubmitting(false); 
     }
@@ -205,7 +217,9 @@ export default function CategoryEditor() {
   const handleSaveAttribute = (attrData: CategoryAttribute) => {
     setError("");
     if (localAttributes.some(a => a.name.toLowerCase() === attrData.name.toLowerCase() && (!editingAttr || editingAttr.name !== a.name))) {
-      return setError("Un attributo con questo nome esiste già.");
+      setError("Un attributo con questo nome esiste già.");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
     }
     
     if (editingAttr) {
@@ -221,6 +235,7 @@ export default function CategoryEditor() {
       const activeAttributesCount = localAttributes.filter(a => a.status !== 'unavailable' && a.name !== attrName).length;
       if (activeAttributesCount === 0) {
         setError("Impossibile eliminare l'unico attributo rimanente. Una categoria deve avere almeno un attributo attivo.");
+        window.scrollTo({ top: 0, behavior: 'smooth' });
         setTimeout(() => setError(""), 4000);
         return;
       }
@@ -238,7 +253,8 @@ export default function CategoryEditor() {
       if (!res.ok) throw new Error((await res.json()).error || "Impossibile eliminare");
       navigate('/admin/categories');
     } catch (err: any) { 
-      setError(err.message); 
+      setError(err.message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       setIsSubmitting(false); 
     }
   };
@@ -258,7 +274,8 @@ export default function CategoryEditor() {
       setConflictPrompt({ isOpen: false, pendingAttr: null });
       navigate('/admin/categories'); 
     } catch(err: any) { 
-      setError(err.message); 
+      setError(err.message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       setIsSubmitting(false); 
     }
   };
@@ -277,6 +294,9 @@ export default function CategoryEditor() {
           <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
             {currentCategory ? `Gestione Categoria: ${currentCategory.name}` : "Nuova Categoria"}
           </h2>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Configura le informazioni base e definisci il tracciato dei metadati per questa tipologia di asset.
+          </p>
         </div>
       </div>
 
@@ -315,7 +335,7 @@ export default function CategoryEditor() {
               </div>
               
               <div>
-                <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Descrizione (opzionale)</label>
+                <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Descrizione</label>
                 <input type="text" value={catDesc} onChange={e => setCatDesc(e.target.value)} placeholder="Dettagli operativi o linee guida..." className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white shadow-sm" />
               </div>
             </div>
@@ -397,9 +417,9 @@ export default function CategoryEditor() {
                           {isEffectivelyDeprecated ? (
                               <button onClick={() => setAttrDeprecationStatus(attr.name, false)} className="text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors">Ripristina</button>
                           ) : isPendingDeletion ? (
-                              <button onClick={() => setAttrDeprecationStatus(attr.name, false)} className="text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors">Annulla Eliminazione</button>
+                              <button onClick={() => setAttrDeprecationStatus(attr.name, false)} className="text-[11px] font-bold text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors">Annulla eliminazione</button>
                           ) : isPendingRestore ? (
-                              <button onClick={() => setAttrDeprecationStatus(attr.name, true)} className="text-[11px] font-bold text-rose-600 hover:text-rose-800 transition-colors">Annulla Ripristino</button>
+                              <button onClick={() => setAttrDeprecationStatus(attr.name, true)} className="text-[11px] font-bold text-rose-600 hover:text-rose-800 transition-colors">Annulla ripristino</button>
                           ) : (
                             <>
                               <button onClick={() => { setEditingAttr(attr); setAttrFormOpen(true); }} className="text-[11px] font-bold text-blue-600 hover:text-blue-800 transition-colors">Modifica</button>
@@ -408,6 +428,7 @@ export default function CategoryEditor() {
                                   onClick={() => {
                                     if (localAttributes.filter(a => a.status !== 'unavailable').length <= 1) {
                                       setError("Impossibile rimuovere l'unico attributo. Una categoria deve avere almeno un attributo.");
+                                      window.scrollTo({ top: 0, behavior: 'smooth' });
                                       setTimeout(() => setError(""), 4000);
                                       return;
                                     }
