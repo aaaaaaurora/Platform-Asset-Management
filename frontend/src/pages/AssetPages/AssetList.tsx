@@ -62,6 +62,11 @@ export default function AssetList() {
   // --- STATI PER FILTRI DINAMICI ---
   const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
 
+  // --- STATI PAGINAZIONE ---
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [formData, setFormData] = useState<{ lat: number; lng: number; metadata: Record<string, any>; media_ids: string[] }>({ lat: 0, lng: 0, metadata: {}, media_ids: [] });
   
@@ -105,12 +110,14 @@ export default function AssetList() {
   }, [token]);
 
   // Caricamento Assets in base ai Filtri (Differenziato per Ruolo) 
-  const fetchAssets = async () => {
+  const fetchAssets = async (page: number) => {
     if (!token) return;
     try {
       setLoading(true);
       
       const params = new URLSearchParams();
+      params.append('page', page.toString());
+      params.append('limit', '50'); // Dimensione predefinita per l'interfaccia
       
       if (isAdmin) {
         if (selectedCampusesAdmin.length > 0) {
@@ -146,6 +153,9 @@ export default function AssetList() {
         }
 
         setAssets(fetchedAssets);
+        setTotalPages(assetData.pagination?.total_pages || 1);
+        setTotalItems(assetData.pagination?.total_count || 0);
+        setCurrentPage(assetData.pagination?.page || 1);
       }
     } catch (error) {
       console.error("Errore nel recupero asset:", error);
@@ -154,9 +164,15 @@ export default function AssetList() {
     }
   };
 
+  // Resetta la pagina a 1 quando cambiano i filtri
   useEffect(() => {
-    fetchAssets();
-  }, [token, selectedCampusesOp, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters, user, isAdmin]);
+    setCurrentPage(1);
+  }, [selectedCampusesOp, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters]);
+
+  // Esegue la fetch quando cambiano token, pagina corrente o configurazione ruoli
+  useEffect(() => {
+    fetchAssets(currentPage);
+  }, [token, currentPage, selectedCampusesOp, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters, user, isAdmin]);
 
   // Gestione Reset Filtri Dinamici al cambio categoria
   useEffect(() => {
@@ -248,6 +264,22 @@ export default function AssetList() {
     setPendingDeletes([]);
     setShowDeleteConfirm(false); 
     setPreventiveNote('');
+  };
+
+  const getPageNumbers = () => {
+    const delta = 2;
+    const range = [];
+    for (let i = Math.max(2, currentPage - delta); i <= Math.min(totalPages - 1, currentPage + delta); i++) {
+      range.push(i);
+    }
+
+    if (currentPage - delta > 2) range.unshift("...");
+    if (currentPage + delta < totalPages - 1) range.push("...");
+
+    range.unshift(1);
+    if (totalPages > 1) range.push(totalPages);
+
+    return range;
   };
 
   // =================================================================
@@ -356,7 +388,7 @@ export default function AssetList() {
 
       showNotification('success', "Aggiornamento completato con successo!");
       closeModal();
-      fetchAssets(); 
+      fetchAssets(currentPage); 
     } catch (error: any) {
       showNotification('error', error.message);
     } finally {
@@ -377,7 +409,7 @@ export default function AssetList() {
       showNotification('success', "Asset eliminato con successo!");
       setShowDeleteConfirm(false);
       closeModal();
-      fetchAssets();
+      fetchAssets(currentPage);
     } catch (error: any) {
       showNotification('error', error.message);
     } finally {
@@ -671,6 +703,51 @@ export default function AssetList() {
           </table>
         </div>
       </div>
+
+      {/* CONTROLLI PAGINAZIONE */}
+      {!loading && totalPages > 1 && (
+        <div className="mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row bg-white p-4 rounded-xl shadow-sm border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
+          <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
+            Mostrando pagina <span className="font-bold text-slate-800 dark:text-white">{currentPage}</span> di {totalPages} 
+            <span className="ml-2 text-xs">({totalItems} record totali)</span>
+          </span>
+          <div className="flex gap-1.5 items-center">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+            </button>
+
+            {getPageNumbers().map((num, idx) => (
+              num === "..." ? (
+                <span key={`dots-${idx}`} className="px-2 py-1 text-slate-400 font-bold">...</span>
+              ) : (
+                <button
+                  key={num}
+                  onClick={() => setCurrentPage(num as number)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-bold transition-colors ${
+                    currentPage === num
+                      ? "bg-blue-600 text-white shadow-sm border border-blue-600"
+                      : "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {num}
+                </button>
+              )
+            ))}
+
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors dark:bg-slate-700 dark:border-slate-600 dark:text-white"
+            >
+               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {selectedAsset && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">

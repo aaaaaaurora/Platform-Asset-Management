@@ -7,9 +7,18 @@ interface CategoryDistributionProps {
 
 export default function CategoryDistributionChart({ distributionData }: CategoryDistributionProps) {
   const labels = distributionData ? Object.keys(distributionData) : [];
-  const series = distributionData ? Object.values(distributionData) : [];
+  
+  // Dati Reali
+  const realSeries = distributionData ? Object.values(distributionData) : [];
+  const hasData = realSeries.length > 0 && realSeries.some((val) => val > 0);
+  const realTotal = realSeries.reduce((acc, val) => acc + val, 0);
 
-  const hasData = series.length > 0 && series.some((val) => val > 0);
+  // Calcoliamo un valore "Visivo" minimo (1.5% del totale) per garantire che ogni 
+  // spicchio, anche se contiene solo 1 elemento su 5000, sia visibile ad occhio nudo.
+  const minVisualValue = realTotal * 0.015; 
+  const visualSeries = realSeries.map((val) => 
+    val > 0 && val < minVisualValue ? minVisualValue : val
+  );
 
   const options: ApexOptions = {
     chart: { type: 'donut', fontFamily: 'inherit' },
@@ -30,14 +39,35 @@ export default function CategoryDistributionChart({ distributionData }: Category
             show: true,
             name: { fontSize: '14px', fontWeight: 600, color: '#64748B' },
             value: { fontSize: '24px', fontWeight: 800, color: '#0F172A' },
-            total: { show: true, label: 'Totale Asset', color: '#64748B', fontSize: '12px', fontWeight: 700 }
+            total: { 
+              show: true, 
+              label: 'Totale Asset', 
+              color: '#64748B', 
+              fontSize: '12px', 
+              fontWeight: 700,
+              // Sovrascriviamo il calcolo automatico per mostrare la somma REALE (5007)
+              // e non quella falsata dai valori minimi visivi aggiunti per gli spicchi
+              formatter: () => realTotal.toString() 
+            }
           }
         },
       },
     },
     dataLabels: { enabled: false },
     stroke: { width: 0 },
-    tooltip: { theme: 'light', y: { formatter: (val) => `${val}` } }
+    tooltip: { 
+      theme: 'light', 
+      y: { 
+        // Sovrascriviamo il tooltip in modo che passando il mouse su uno spicchio 
+        // ingrandito forzatamente, appaia comunque il valore reale (es. "1")
+        formatter: (val, opts) => {
+          if (opts && opts.seriesIndex !== undefined) {
+            return `${realSeries[opts.seriesIndex]}`;
+          }
+          return `${val}`;
+        } 
+      } 
+    }
   };
 
   return (
@@ -49,7 +79,7 @@ export default function CategoryDistributionChart({ distributionData }: Category
 
       <div className="flex-1 flex items-center justify-center">
         {hasData ? (
-          <ReactApexChart options={options} series={series} type="donut" height={320} width="100%" />
+          <ReactApexChart options={options} series={visualSeries} type="donut" height={320} width="100%" />
         ) : (
           <div className="text-sm font-medium text-slate-400">
             Nessuna categoria censita.
