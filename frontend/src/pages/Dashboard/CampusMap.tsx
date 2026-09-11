@@ -90,18 +90,30 @@ export default function CampusMap() {
     }
   }, [user, token, focusCampusId]);
 
+  // <-- NUOVA LOGICA: Fetch Parallela Paginata -->
   useEffect(() => {
-    const fetchAssets = async () => {
+    const fetchAllMapAssets = async () => {
+      if (!token || !selectedCampus) {
+        setAssets([]);
+        return;
+      }
+
       try {
+        const limit = 500; // Massimo consentito dal backend per pagina
+        const baseUrl = import.meta.env.VITE_API_URL || '';
+        
         const params = new URLSearchParams();
-        if (selectedCampus) params.append('campus_id', selectedCampus);
+        params.append('campus_id', selectedCampus);
+        params.append('limit', limit.toString());
+        params.append('page', '1');
         
         // Se l'utente è un operatore, richiediamo al backend solo gli asset della sua categoria
         if (user?.role === 'OPERATORE' && user?.category_id) {
           params.append('category_id', user.category_id);
         }
 
-        const url = `${import.meta.env.VITE_API_URL}/asset/api/assets?${params.toString()}`;
+        // 1. Fetch della prima pagina per ottenere i metadati di paginazione
+        const url = `${baseUrl}/asset/api/assets?${params.toString()}`;
         const response = await fetch(url, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -109,20 +121,48 @@ export default function CampusMap() {
         if (!response.ok) throw new Error('Errore nel recupero asset');
         const data = await response.json();
         
-        let fetchedAssets = data.assets || [];
+        let allFetchedAssets = data.assets || [];
+        const totalPages = data.pagination?.total_pages || 1;
+
+        // 2. Fetch parallela di tutte le pagine successive (se esistono)
+        if (totalPages > 1) {
+          const fetchPromises = [];
+          for (let i = 2; i <= totalPages; i++) {
+            params.set('page', i.toString());
+            fetchPromises.push(
+              fetch(`${baseUrl}/asset/api/assets?${params.toString()}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              }).then(res => res.json())
+            );
+          }
+
+          // Attendiamo che tutte le pagine vengano scaricate
+          const pagineSuccessive = await Promise.all(fetchPromises);
+          
+          // 3. Concatenazione di tutti gli array
+          pagineSuccessive.forEach(pageData => {
+            if (pageData.assets) {
+              allFetchedAssets = [...allFetchedAssets, ...pageData.assets];
+            }
+          });
+        }
         
         // Filtro di sicurezza aggiuntivo lato frontend
         if (user?.role === 'OPERATORE' && user?.category_id) {
-          fetchedAssets = fetchedAssets.filter((a: any) => a.category_id === user.category_id);
+          allFetchedAssets = allFetchedAssets.filter((a: any) => a.category_id === user.category_id);
         }
 
-        setAssets(fetchedAssets);
-      } catch (error) { console.error("Errore recupero asset:", error); }
+        // 4. Salviamo l'array completo nello stato della mappa
+        setAssets(allFetchedAssets);
+        
+      } catch (error) { 
+        console.error("Errore nel recupero massivo degli asset per la mappa:", error); 
+      }
     };
     
-    // MODIFICA: Effettua il fetch degli asset solo se è stato effettivamente selezionato un campus
+    // Effettua il fetch degli asset solo se è stato effettivamente selezionato un campus
     if (selectedCampus) {
-      fetchAssets();
+      fetchAllMapAssets();
     } else {
       setAssets([]); // Se torno su "Seleziona...", svuoto la mappa
     }

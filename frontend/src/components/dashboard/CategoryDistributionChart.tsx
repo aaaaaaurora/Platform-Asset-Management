@@ -13,11 +13,12 @@ export default function CategoryDistributionChart({ distributionData }: Category
   const hasData = realSeries.length > 0 && realSeries.some((val) => val > 0);
   const realTotal = realSeries.reduce((acc, val) => acc + val, 0);
 
-  // Calcoliamo un valore "Visivo" minimo (1.5% del totale) per garantire che ogni 
-  // spicchio, anche se contiene solo 1 elemento su 5000, sia visibile ad occhio nudo.
+  // Calcoliamo un valore "Visivo" minimo (1.5% del totale). 
+  // Aggiungiamo un decimale microscopico univoco (idx * 0.0001) per poter 
+  // rintracciare il valore reale esatto durante l'hover, aggirando i limiti di ApexCharts.
   const minVisualValue = realTotal * 0.015; 
-  const visualSeries = realSeries.map((val) => 
-    val > 0 && val < minVisualValue ? minVisualValue : val
+  const visualSeries = realSeries.map((val, idx) => 
+    val > 0 && val < minVisualValue ? minVisualValue + (idx * 0.0001) : val
   );
 
   const options: ApexOptions = {
@@ -29,7 +30,6 @@ export default function CategoryDistributionChart({ distributionData }: Category
       position: 'bottom',
       fontSize: '13px',
       fontWeight: 600
-      // Rimossa la proprietà "markers: { radius: 12 }" che causava l'errore TypeScript 
     },
     plotOptions: {
       pie: {
@@ -38,15 +38,23 @@ export default function CategoryDistributionChart({ distributionData }: Category
           labels: {
             show: true,
             name: { fontSize: '14px', fontWeight: 600, color: '#64748B' },
-            value: { fontSize: '24px', fontWeight: 800, color: '#0F172A' },
+            value: { 
+              fontSize: '24px', 
+              fontWeight: 800, 
+              color: '#0F172A',
+              // Intercettiamo il valore visivo e restituiamo quello reale al centro
+              formatter: (val) => {
+                const numVal = Number(val);
+                const index = visualSeries.findIndex(v => v === numVal);
+                return index !== -1 ? realSeries[index].toString() : val.toString();
+              }
+            },
             total: { 
               show: true, 
               label: 'Totale Asset', 
               color: '#64748B', 
               fontSize: '12px', 
               fontWeight: 700,
-              // Sovrascriviamo il calcolo automatico per mostrare la somma REALE (5007)
-              // e non quella falsata dai valori minimi visivi aggiunti per gli spicchi
               formatter: () => realTotal.toString() 
             }
           }
@@ -58,13 +66,14 @@ export default function CategoryDistributionChart({ distributionData }: Category
     tooltip: { 
       theme: 'light', 
       y: { 
-        // Sovrascriviamo il tooltip in modo che passando il mouse su uno spicchio 
-        // ingrandito forzatamente, appaia comunque il valore reale (es. "1")
         formatter: (val, opts) => {
           if (opts && opts.seriesIndex !== undefined) {
             return `${realSeries[opts.seriesIndex]}`;
           }
-          return `${val}`;
+          // Fallback di sicurezza nel caso seriesIndex non fosse disponibile
+          const numVal = Number(val);
+          const index = visualSeries.findIndex(v => v === numVal);
+          return index !== -1 ? `${realSeries[index]}` : `${val}`;
         } 
       } 
     }
