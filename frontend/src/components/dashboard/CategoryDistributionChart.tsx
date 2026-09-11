@@ -20,7 +20,7 @@ export default function CategoryDistributionChart({ distributionData }: Category
       position: 'bottom',
       fontSize: '13px',
       fontWeight: 600
-      // Rimossa la proprietà "markers: { radius: 12 }" che causava l'errore TypeScript
+      // Rimossa la proprietà "markers: { radius: 12 }" che causava l'errore TypeScript 
     },
     plotOptions: {
       pie: {
