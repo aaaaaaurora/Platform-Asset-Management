@@ -267,7 +267,7 @@ export default function CategoryEditor() {
 
   return (
     <>
-      {/* HEADER PAGINA - Mantenuto allineato a sinistra */}
+      {/* HEADER PAGINA */}
       <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <button onClick={() => navigate('/admin/categories')} className="text-sm font-semibold text-slate-500 hover:text-blue-600 mb-1 transition-colors flex items-center gap-1.5">
@@ -294,7 +294,7 @@ export default function CategoryEditor() {
               <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Informazioni Base</h3>
             </div>
             
-            {/* Layout a griglia 2 colonne per ridurre l'altezza verticale */}
+            {/* Layout a griglia 2 colonne */}
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 flex-1">
               <div className="flex gap-4 items-start">
                 <div className="relative">
@@ -309,14 +309,14 @@ export default function CategoryEditor() {
                   )}
                 </div>
                 <div className="flex-1">
-                  <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Nome Categoria</label>
+                  <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Nome Categoria <span className="text-rose-500">*</span></label>
                   <input type="text" value={catName} onChange={e => setCatName(e.target.value)} placeholder="Es. Macchinari" className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white shadow-sm" />
                 </div>
               </div>
               
               <div>
                 <label className="mb-2 block text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Descrizione (opzionale)</label>
-                <textarea rows={2} value={catDesc} onChange={e => setCatDesc(e.target.value)} placeholder="Dettagli operativi o linee guida..." className="w-full resize-none rounded-md border border-slate-300 py-2.5 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white shadow-sm" />
+                <input type="text" value={catDesc} onChange={e => setCatDesc(e.target.value)} placeholder="Dettagli operativi o linee guida..." className="h-11 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white shadow-sm" />
               </div>
             </div>
           </div>
