@@ -931,7 +931,11 @@ def get_assets():
         if not user_campuses:
             return jsonify({"assets": [], "pagination": {}}), 200 
             
-        requested_campuses = request.args.getlist('campus_id')
+        raw_campuses = request.args.getlist('campus_id')
+        requested_campuses = []
+        for val in raw_campuses:
+            requested_campuses.extend([c.strip() for c in val.split(',') if c.strip()])
+            
         if requested_campuses:
             valid_campuses = [c for c in requested_campuses if c in user_campuses]
             if not valid_campuses:
@@ -942,7 +946,11 @@ def get_assets():
             mongo_query['campus_id'] = {'$in': user_campuses}
 
     # 2. Filtro per Categoria Strutturale
-    requested_categories = request.args.getlist('category_id')
+    raw_categories = request.args.getlist('category_id')
+    requested_categories = []
+    for val in raw_categories:
+        requested_categories.extend([c.strip() for c in val.split(',') if c.strip()])
+        
     if requested_categories:
         for cat_id in requested_categories:
             if not ObjectId.is_valid(cat_id):
@@ -1027,7 +1035,11 @@ def export_assets():
     mongo_query = {}
 
     # 1. Filtro Territoriale
-    requested_campuses = request.args.getlist('campus_id')
+    raw_campuses = request.args.getlist('campus_id')
+    requested_campuses = []
+    for val in raw_campuses:
+        requested_campuses.extend([c.strip() for c in val.split(',') if c.strip()])
+        
     if requested_campuses:
         valid_campuses = [c for c in requested_campuses if c in user_campuses]
         if not valid_campuses:
@@ -1038,7 +1050,11 @@ def export_assets():
         mongo_query['campus_id'] = {'$in': user_campuses}
 
     # 2. Filtro Categoria
-    requested_categories = request.args.getlist('category_id')
+    raw_categories = request.args.getlist('category_id')
+    requested_categories = []
+    for val in raw_categories:
+        requested_categories.extend([c.strip() for c in val.split(',') if c.strip()])
+        
     if requested_categories:
         mongo_query['category_id'] = {'$in': requested_categories}
 

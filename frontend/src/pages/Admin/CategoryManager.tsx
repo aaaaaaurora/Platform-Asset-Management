@@ -36,7 +36,7 @@ export default function CategoryEditor() {
   const [conflictPrompt, setConflictPrompt] = useState<{isOpen: boolean, pendingAttr: CategoryAttribute | null, oldName?: string}>({ isOpen: false, pendingAttr: null });
   const [deleteCategoryAlert, setDeleteCategoryAlert] = useState(false);
 
-  // Caricamento Dati in Modifica
+  // Caricamento Dati in Modifica 
   useEffect(() => {
     if (id) {
       const fetchCategory = async () => {
