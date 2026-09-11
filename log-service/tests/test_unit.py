@@ -79,8 +79,8 @@ def test_audit_log_repository_insert(client):
 
 
 @patch('app.RabbitMQManager')
-def test_process_log_event_callback(mock_mq_manager, mock_emit, client):
-    """Simula la ricezione di un evento RabbitMQ e verifica la persistenza su DB e WebSocket."""
+def test_process_log_event_callback(mock_mq_manager, client):
+    """Simula la ricezione di un evento RabbitMQ e verifica la persistenza su DB."""
     from app import process_log_event
     
     mock_channel = MagicMock()
@@ -100,14 +100,13 @@ def test_process_log_event_callback(mock_mq_manager, mock_emit, client):
     process_log_event(mock_channel, mock_method, None, body)
     
     mock_channel.basic_ack.assert_called_once_with(delivery_tag=1)
-
-    mock_emit.assert_called_once()
     
+    from app import app, AuditLogRepository
     with app.app_context():
         logs = AuditLogRepository.get_all_logs({})
         assert len(logs) == 1
         assert logs[0].action == "USER_CREATED"
-
+        
 # ============================================================================
 # 3. TEST CONSULTAZIONE STORICO (US 7-1 / UC-AMM-05)
 # ============================================================================

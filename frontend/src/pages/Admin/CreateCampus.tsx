@@ -204,7 +204,7 @@ export default function CreateCampusPage() {
                 </button>
               </div>
 
-              {/* Box Note Descrittive (Metà larghezza esatta come il Nome) */}
+              {/* Box Note Descrittive*/}
               <div className="flex-1 w-full">
                 <label className="mb-1 block text-sm font-semibold text-slate-700 dark:text-slate-300">
                   Descrizione

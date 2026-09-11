@@ -1030,7 +1030,7 @@ def export_assets():
     user_campuses = auth.get('campus_ids', [])
     mongo_query = {}
 
-    # 1. Filtro Territoriale
+    # 1. Filtro Territoriale 
     requested_campus_param = request.args.get('campus_id')
     if requested_campus_param:
         requested_campuses = [c.strip() for c in requested_campus_param.split(',')]
