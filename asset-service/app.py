@@ -931,12 +931,10 @@ def get_assets():
         if not user_campuses:
             return jsonify({"assets": [], "pagination": {}}), 200 
             
-        raw_campuses = request.args.getlist('campus_id')
-        requested_campuses = []
-        for val in raw_campuses:
-            requested_campuses.extend([c.strip() for c in val.split(',') if c.strip()])
-            
-        if requested_campuses:
+        requested_campus_param = request.args.get('campus_id')
+        if requested_campus_param:
+            # Suddividiamo la stringa separata da virgole in una lista
+            requested_campuses = [c.strip() for c in requested_campus_param.split(',')]
             valid_campuses = [c for c in requested_campuses if c in user_campuses]
             if not valid_campuses:
                 return jsonify({"assets": [], "pagination": {}}), 200
@@ -946,17 +944,15 @@ def get_assets():
             mongo_query['campus_id'] = {'$in': user_campuses}
 
     # 2. Filtro per Categoria Strutturale
-    raw_categories = request.args.getlist('category_id')
-    requested_categories = []
-    for val in raw_categories:
-        requested_categories.extend([c.strip() for c in val.split(',') if c.strip()])
-        
-    if requested_categories:
+    requested_category_param = request.args.get('category_id')
+    if requested_category_param:
+        # Suddividiamo la stringa separata da virgole in una lista
+        requested_categories = [c.strip() for c in requested_category_param.split(',')]
         for cat_id in requested_categories:
             if not ObjectId.is_valid(cat_id):
                 return error_response(f"ID Categoria non valido: {cat_id}", 400)
         mongo_query['category_id'] = {'$in': requested_categories}
-
+        
     # 3. Filtri Dinamici sugli Attributi (US 5-2)
     def parse_filter_value(v):
         """Tenta il cast del valore stringa al tipo nativo corretto."""
@@ -1035,12 +1031,9 @@ def export_assets():
     mongo_query = {}
 
     # 1. Filtro Territoriale
-    raw_campuses = request.args.getlist('campus_id')
-    requested_campuses = []
-    for val in raw_campuses:
-        requested_campuses.extend([c.strip() for c in val.split(',') if c.strip()])
-        
-    if requested_campuses:
+    requested_campus_param = request.args.get('campus_id')
+    if requested_campus_param:
+        requested_campuses = [c.strip() for c in requested_campus_param.split(',')]
         valid_campuses = [c for c in requested_campuses if c in user_campuses]
         if not valid_campuses:
             from flask import Response
@@ -1050,14 +1043,11 @@ def export_assets():
         mongo_query['campus_id'] = {'$in': user_campuses}
 
     # 2. Filtro Categoria
-    raw_categories = request.args.getlist('category_id')
-    requested_categories = []
-    for val in raw_categories:
-        requested_categories.extend([c.strip() for c in val.split(',') if c.strip()])
-        
-    if requested_categories:
+    requested_category_param = request.args.get('category_id')
+    if requested_category_param:
+        requested_categories = [c.strip() for c in requested_category_param.split(',')]
         mongo_query['category_id'] = {'$in': requested_categories}
-
+        
     # 3. Filtri Dinamici
     def parse_filter_value(v):
         v = v.strip()

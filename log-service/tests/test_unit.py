@@ -78,7 +78,6 @@ def test_audit_log_repository_insert(client):
         assert saved.service_name == "ticket-service"
 
 
-@patch('app.socketio.emit') 
 @patch('app.RabbitMQManager')
 def test_process_log_event_callback(mock_mq_manager, mock_emit, client):
     """Simula la ricezione di un evento RabbitMQ e verifica la persistenza su DB e WebSocket."""
