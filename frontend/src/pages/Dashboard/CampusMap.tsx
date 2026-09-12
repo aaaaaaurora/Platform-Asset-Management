@@ -7,6 +7,51 @@ import { useAuth } from '../../context/AuthContext';
 import WarningFormModal from '../../components/guest/WarningFormModal';
 import Supercluster from 'supercluster';
 
+function AuthorizedImage({ mediaId, token }: { mediaId: string; token: string }) {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchImage = async () => {
+      try {
+        const response = `${import.meta.env.VITE_API_URL}/media/images/${mediaId}`;
+        const res = await fetch(response, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (isMounted) {
+            setImageSrc(URL.createObjectURL(blob));
+          }
+        }
+      } catch (err) {
+        console.error("Errore caricamento immagine:", err);
+      }
+    };
+    fetchImage();
+    return () => {
+      isMounted = false;
+      if (imageSrc) URL.revokeObjectURL(imageSrc);
+    };
+  }, [mediaId, token]);
+
+  if (!imageSrc) {
+    return (
+      <div className="h-48 w-full bg-gray-100 dark:bg-meta-4 animate-pulse rounded-lg flex items-center justify-center text-xs text-gray-500">
+        Caricamento immagine...
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageSrc}
+      alt="Immagine Asset"
+      className="h-48 w-full object-cover rounded-lg shadow-sm border border-stroke dark:border-strokedark bg-gray-100 dark:bg-meta-4"
+    />
+  );
+}
+
 export default function CampusMap() {
   const mapRef = useRef<MapRef>(null);
   const { user, token } = useAuth();
@@ -30,6 +75,7 @@ export default function CampusMap() {
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   
   const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
+  const [permissionLimitationMsg, setPermissionLimitationMsg] = useState<string | null>(null);
   
   // STATO AGGIUNTIVO PER IL CLUSTERING
   const [clusters, setClusters] = useState<any[]>([]);
@@ -46,12 +92,16 @@ export default function CampusMap() {
           }
         },
         (error) => {
-          console.warn("Geolocalizzazione negata o fallita. Uso coordinate di default.", error);
+          console.warn("Geolocalizzazione negata o fallita.", error);
+          if (error.code === 1) { // PERMISSION_DENIED
+            setPermissionLimitationMsg("Consenso GPS rifiutato. L'utente senza GPS è limitato nella visualizzazione e ricerca degli asset intorno a lui. Concedi i permessi dalle impostazioni del dispositivo.");
+          }
           if (!focusCampusId) {
             const defaultCoords = { longitude: 14.7900, latitude: 40.7700 };
             setViewState(prev => ({ ...prev, ...defaultCoords }));
           }
-        }
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
       );
     }
   }, [focusCampusId]);
@@ -400,6 +450,30 @@ export default function CampusMap() {
         )}
       </div>
 
+      {/* MODALE AVVISO LIMITAZIONI GPS */}
+      {permissionLimitationMsg && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-sm rounded-xl bg-white shadow-2xl dark:bg-boxdark border border-stroke dark:border-strokedark overflow-hidden animate-fade-in-up">
+            <div className="p-5 text-center">
+              <svg className="mx-auto mb-3 w-10 h-10 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h3 className="mb-2 text-lg font-bold text-black dark:text-white">Limitazioni Attive</h3>
+              <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+                {permissionLimitationMsg}
+              </p>
+              <button 
+                onClick={() => setPermissionLimitationMsg(null)} 
+                className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"
+              >
+                Ho capito
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {selectedAsset && createPortal(
         <>
           <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
@@ -435,12 +509,7 @@ export default function CampusMap() {
                 {selectedAsset.media_ids && selectedAsset.media_ids.length > 0 && (
                   <div className="mb-5 flex gap-2 overflow-x-auto pb-2">
                     {selectedAsset.media_ids.map((mediaId: string) => (
-                      <img
-                        key={mediaId}
-                        src={`${import.meta.env.VITE_API_URL}/media/images/${mediaId}`}
-                        alt="Immagine Asset"
-                        className="h-48 w-full object-cover rounded-lg shadow-sm border border-stroke dark:border-strokedark bg-gray-100 dark:bg-meta-4 flex items-center justify-center text-xs text-center text-gray-500"
-                      />
+                      <AuthorizedImage key={mediaId} mediaId={mediaId} token={token!} />
                     ))}
                   </div>
                 )}
