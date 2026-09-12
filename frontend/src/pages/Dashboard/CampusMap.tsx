@@ -4,7 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Map, { Source, Layer, MapRef, Marker } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useAuth } from '../../context/AuthContext';
-import WarningFormModal from '../../components/guest/WarningFormModal'; 
+import WarningFormModal from '../../components/guest/WarningFormModal';
+import Supercluster from 'supercluster';
 
 export default function CampusMap() {
   const mapRef = useRef<MapRef>(null);
@@ -18,7 +19,6 @@ export default function CampusMap() {
   const [viewState, setViewState] = useState({ longitude: 14.7900, latitude: 40.7700, zoom: 15, pitch: 45, bearing: 0 });
   const [campuses, setCampuses] = useState<any[]>([]);
   
-  // MODIFICA: Inizializzato a vuoto per la selezione di default
   const [selectedCampus, setSelectedCampus] = useState<string>('');
   const [isCampusDropdownOpen, setIsCampusDropdownOpen] = useState(false);
   
@@ -30,6 +30,9 @@ export default function CampusMap() {
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   
   const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
+  
+  // STATO AGGIUNTIVO PER IL CLUSTERING
+  const [clusters, setClusters] = useState<any[]>([]);
 
   useEffect(() => {
     if ('geolocation' in navigator) {
@@ -38,7 +41,6 @@ export default function CampusMap() {
           const coords = { longitude: position.coords.longitude, latitude: position.coords.latitude };
           setUserLocation(coords);
           
-          // Se non è stato imposto un campus specifico dal router, vai alla posizione utente
           if (!focusCampusId) {
             setViewState(prev => ({ ...prev, ...coords }));
           }
@@ -68,7 +70,6 @@ export default function CampusMap() {
           if (focusCampusId && realCampuses.some((c: any) => c.id === focusCampusId)) {
             setSelectedCampus(focusCampusId);
           } else {
-            // MODIFICA: Assicura che si parta dalla voce vuota, non dal primo array
             setSelectedCampus('');
           }
         } catch (error) { console.error("Errore recupero campus:", error); }
@@ -90,7 +91,6 @@ export default function CampusMap() {
     }
   }, [user, token, focusCampusId]);
 
-  // <-- NUOVA LOGICA: Fetch Parallela Paginata -->
   useEffect(() => {
     const fetchAllMapAssets = async () => {
       if (!token || !selectedCampus) {
@@ -99,7 +99,7 @@ export default function CampusMap() {
       }
 
       try {
-        const limit = 500; // Massimo consentito dal backend per pagina
+        const limit = 500; 
         const baseUrl = import.meta.env.VITE_API_URL || '';
         
         const params = new URLSearchParams();
@@ -107,12 +107,10 @@ export default function CampusMap() {
         params.append('limit', limit.toString());
         params.append('page', '1');
         
-        // Se l'utente è un operatore, richiediamo al backend solo gli asset della sua categoria
         if (user?.role === 'OPERATORE' && user?.category_id) {
           params.append('category_id', user.category_id);
         }
 
-        // 1. Fetch della prima pagina per ottenere i metadati di paginazione
         const url = `${baseUrl}/asset/api/assets?${params.toString()}`;
         const response = await fetch(url, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -124,7 +122,6 @@ export default function CampusMap() {
         let allFetchedAssets = data.assets || [];
         const totalPages = data.pagination?.total_pages || 1;
 
-        // 2. Fetch parallela di tutte le pagine successive (se esistono)
         if (totalPages > 1) {
           const fetchPromises = [];
           for (let i = 2; i <= totalPages; i++) {
@@ -136,10 +133,8 @@ export default function CampusMap() {
             );
           }
 
-          // Attendiamo che tutte le pagine vengano scaricate
           const pagineSuccessive = await Promise.all(fetchPromises);
           
-          // 3. Concatenazione di tutti gli array
           pagineSuccessive.forEach(pageData => {
             if (pageData.assets) {
               allFetchedAssets = [...allFetchedAssets, ...pageData.assets];
@@ -147,12 +142,10 @@ export default function CampusMap() {
           });
         }
         
-        // Filtro di sicurezza aggiuntivo lato frontend
         if (user?.role === 'OPERATORE' && user?.category_id) {
           allFetchedAssets = allFetchedAssets.filter((a: any) => a.category_id === user.category_id);
         }
 
-        // 4. Salviamo l'array completo nello stato della mappa
         setAssets(allFetchedAssets);
         
       } catch (error) { 
@@ -160,11 +153,10 @@ export default function CampusMap() {
       }
     };
     
-    // Effettua il fetch degli asset solo se è stato effettivamente selezionato un campus
     if (selectedCampus) {
       fetchAllMapAssets();
     } else {
-      setAssets([]); // Se torno su "Seleziona...", svuoto la mappa
+      setAssets([]); 
     }
   }, [selectedCampus, token, user]);
 
@@ -237,6 +229,35 @@ export default function CampusMap() {
       : null;
   }, [campuses, selectedCampus]);
 
+  // LOGICA DI CLUSTERING IN MEMORIA
+  const supercluster = useMemo(() => {
+    const sc = new Supercluster({ radius: 60, maxZoom: 18 });
+    const points = assets.map(asset => ({
+      type: 'Feature' as const,
+      properties: { cluster: false, assetId: asset._id, asset },
+      geometry: { type: 'Point' as const, coordinates: asset.geometry.coordinates }
+    }));
+    sc.load(points);
+    return sc;
+  }, [assets]);
+
+  // CALCOLO CLUSTER VISIBILI AD OGNI MOVIMENTO
+  useEffect(() => {
+    if (mapRef.current) {
+      const bounds = mapRef.current.getBounds();
+      if (bounds) {
+        const bbox: [number, number, number, number] = [
+          bounds.getWest(),
+          bounds.getSouth(),
+          bounds.getEast(),
+          bounds.getNorth()
+        ];
+        const zoom = Math.round(viewState.zoom);
+        setClusters(supercluster.getClusters(bbox, zoom));
+      }
+    }
+  }, [assets, viewState, supercluster, maxBounds]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] w-full relative">
       
@@ -297,6 +318,18 @@ export default function CampusMap() {
           mapStyle="https://tiles.openfreemap.org/styles/liberty" 
           interactive={true}
           maxBounds={maxBounds} 
+          onLoad={() => {
+            // Forza un ricalcolo iniziale dei cluster al caricamento della mappa
+            if (mapRef.current) {
+              const bounds = mapRef.current.getBounds();
+              if (bounds) {
+                setClusters(supercluster.getClusters(
+                  [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()], 
+                  Math.round(viewState.zoom)
+                ));
+              }
+            }
+          }}
         >
           {activeCampusData && (
             <Source id="campus-boundary" type="geojson" data={activeCampusData as any}>
@@ -305,21 +338,46 @@ export default function CampusMap() {
             </Source>
           )}
 
-          {assets.map(asset => (
-            <Marker 
-              key={asset._id} 
-              longitude={asset.geometry.coordinates[0]} 
-              latitude={asset.geometry.coordinates[1]} 
-              onClick={(e) => { 
-                e.originalEvent.stopPropagation(); 
-                setSelectedAsset(asset);
-              }}
-            >
-              <div className="text-2xl cursor-pointer hover:scale-125 transition-transform">
-                {getAssetIcon(asset)}
-              </div>
-            </Marker>
-          ))}
+          {/* RENDERING DINAMICO DEI CLUSTER */}
+          {clusters.map(cluster => {
+            const [longitude, latitude] = cluster.geometry.coordinates;
+            const { cluster: isCluster, point_count: pointCount, asset } = cluster.properties;
+
+            if (isCluster) {
+              return (
+                <Marker 
+                  key={`cluster-${cluster.id}`} 
+                  longitude={longitude} 
+                  latitude={latitude}
+                  onClick={(e) => {
+                    e.originalEvent.stopPropagation();
+                    const expansionZoom = Math.min(supercluster.getClusterExpansionZoom(cluster.id), 20);
+                    mapRef.current?.flyTo({ center: [longitude, latitude], zoom: expansionZoom, speed: 1.2 });
+                  }}
+                >
+                  <div className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-blue-600/90 text-white shadow-lg border-2 border-white font-bold hover:scale-110 transition-transform">
+                    {pointCount}
+                  </div>
+                </Marker>
+              );
+            }
+
+            return (
+              <Marker 
+                key={asset._id} 
+                longitude={longitude} 
+                latitude={latitude} 
+                onClick={(e) => { 
+                  e.originalEvent.stopPropagation(); 
+                  setSelectedAsset(asset);
+                }}
+              >
+                <div className="text-2xl cursor-pointer hover:scale-125 transition-transform">
+                  {getAssetIcon(asset)}
+                </div>
+              </Marker>
+            );
+          })}
 
           {userLocation && (
             <Marker longitude={userLocation.longitude} latitude={userLocation.latitude}>
