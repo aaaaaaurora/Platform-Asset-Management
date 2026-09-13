@@ -384,7 +384,7 @@ export default function CampusMap() {
       {isInitializingLocation && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm transition-all">
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600 mb-3"></div>
-          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Rilevamento posizione e geofence campus...</p>
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Rilevamento posizione...</p>
         </div>
       )}
 
