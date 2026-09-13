@@ -7,6 +7,23 @@ import { useAuth } from '../../context/AuthContext';
 import WarningFormModal from '../../components/guest/WarningFormModal';
 import Supercluster from 'supercluster';
 
+// Funzione ausiliaria per verificare se un punto [lng, lat] si trova dentro un poligono GeoJSON (Ray-casting algorithm)
+function isPointInPolygon(point: [number, number], polygonCoords: number[][][]) {
+  const [x, y] = point;
+  let inside = false;
+  
+  for (const ring of polygonCoords) {
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [xi, yi] = ring[i];
+      const [xj, yj] = ring[j];
+      
+      const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+  }
+  return inside;
+}
+
 function AuthorizedImage({ mediaId, token }: { mediaId: string; token: string }) {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
 
@@ -65,12 +82,13 @@ export default function CampusMap() {
 
   const [viewState, setViewState] = useState({ longitude: 14.7900, latitude: 40.7700, zoom: 15, pitch: 45, bearing: 0 });
   const [campuses, setCampuses] = useState<any[]>([]);
+  const [isInitializingLocation, setIsInitializingLocation] = useState(true); // Stato per lo spinner iniziale
   
   // FILTRO CAMPUS (Singolo)
   const [selectedCampus, setSelectedCampus] = useState<string>('');
   const [isCampusDropdownOpen, setIsCampusDropdownOpen] = useState(false);
   
-  // FILTRI AGGIUNTIVI (Copiali da AssetList)
+  // FILTRI AGGIUNTIVI
   const [selectedCategoriesAdmin, setSelectedCategoriesAdmin] = useState<string[]>([]);
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
@@ -87,6 +105,7 @@ export default function CampusMap() {
   
   const [clusters, setClusters] = useState<any[]>([]);
 
+  // 1. Geolocalizzazione iniziale con blocco dello spinner
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -97,64 +116,77 @@ export default function CampusMap() {
           if (!focusCampusId) {
             setViewState(prev => ({ ...prev, ...coords }));
           }
+          setIsInitializingLocation(false);
         },
         (error) => {
           console.warn("Geolocalizzazione negata o fallita.", error);
           if (error.code === 1) { 
-            setPermissionLimitationMsg("Consenso GPS rifiutato. L'utente senza GPS è limitato nella visualizzazione e ricerca degli asset intorno a lui. Concedi i permessi dalle impostazioni del dispositivo.");
+            setPermissionLimitationMsg("Consenso GPS rifiutato. L'utente senza GPS è limitato nella visualizzazione e ricerca degli asset intorno a lui.");
           }
           if (!focusCampusId) {
             const defaultCoords = { longitude: 14.7900, latitude: 40.7700 };
             setViewState(prev => ({ ...prev, ...defaultCoords }));
           }
+          setIsInitializingLocation(false);
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 8000 }
       );
+    } else {
+      setIsInitializingLocation(false);
     }
   }, [focusCampusId]);
 
+  // 2. Caricamento Campus e Categorie + Logica di auto-selezione basata sul perimetro (Geo-fencing)
   useEffect(() => {
     if (user) {
-      const fetchCampuses = async () => {
+      const fetchStaticData = async () => {
         try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/geozone/api/geozones/campuses`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (!response.ok) throw new Error(`Errore HTTP: ${response.status}`);
-          const realCampuses = await response.json();
-          setCampuses(realCampuses);
-          
-          if (focusCampusId && realCampuses.some((c: any) => c.id === focusCampusId)) {
-            setSelectedCampus(focusCampusId);
-          } else {
-            setSelectedCampus('');
+          const [campusesRes, categoriesRes] = await Promise.all([
+            fetch(`${import.meta.env.VITE_API_URL}/geozone/api/geozones/campuses`, { headers: { 'Authorization': `Bearer ${token}` } }),
+            fetch(`${import.meta.env.VITE_API_URL}/asset/api/categories`, { headers: { 'Authorization': `Bearer ${token}` } })
+          ]);
+
+          if (campusesRes.ok) {
+            const realCampuses = await campusesRes.json();
+            setCampuses(realCampuses);
+            
+            if (focusCampusId && realCampuses.some((c: any) => c.id === focusCampusId)) {
+              setSelectedCampus(focusCampusId);
+            } else if (userLocation) {
+              // Verifica automatica se l'utente si trova all'interno di un perimetro campus
+              const matchedCampus = realCampuses.find((c: any) => {
+                if (c.geometry && c.geometry.type === 'Polygon' && c.geometry.coordinates) {
+                  return isPointInPolygon([userLocation.longitude, userLocation.latitude], c.geometry.coordinates);
+                }
+                return false;
+              });
+
+              if (matchedCampus) {
+                setSelectedCampus(matchedCampus.id);
+              }
+            }
           }
-        } catch (error) { console.error("Errore recupero campus:", error); }
+
+          if (categoriesRes.ok) {
+            setCategories(await categoriesRes.json());
+          }
+        } catch (error) { 
+          console.error("Errore nel recupero dati statici:", error); 
+        }
       };
 
-      const fetchCategories = async () => {
-        try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/asset/api/categories`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (response.ok) {
-            setCategories(await response.json());
-          }
-        } catch (error) { console.error("Errore recupero categorie:", error); }
-      };
-
-      fetchCampuses();
-      fetchCategories(); 
+      fetchStaticData(); 
     }
-  }, [user, token, focusCampusId]);
+  }, [user, token, focusCampusId, userLocation]);
 
   // Gestione Reset Filtri Dinamici al cambio categoria
   useEffect(() => {
     setDynamicFilters({});
   }, [selectedCategoriesAdmin]);
 
+  // 3. Recupero Asset con protezione contro le race conditions
   useEffect(() => {
-    let isActive = true; // <-- FLAG DI SICUREZZA PER EVITARE RACE CONDITIONS
+    let isActive = true;
 
     const fetchAllMapAssets = async () => {
       if (!token || !selectedCampus) {
@@ -204,7 +236,6 @@ export default function CampusMap() {
           }
 
           const pagineSuccessive = await Promise.all(fetchPromises);
-          
           pagineSuccessive.forEach(pageData => {
             if (pageData.assets) {
               allFetchedAssets = [...allFetchedAssets, ...pageData.assets];
@@ -216,7 +247,6 @@ export default function CampusMap() {
           allFetchedAssets = allFetchedAssets.filter((a: any) => a.category_id === user.category_id);
         }
 
-        // AGGIORNAMENTO STATO SOLO SE I FILTRI NON SONO CAMBIATI NEL FRATTEMPO
         if (isActive) {
           setAssets(allFetchedAssets);
         }
@@ -232,7 +262,6 @@ export default function CampusMap() {
       if (isActive) setAssets([]); 
     }
 
-    // CLEANUP FUNCTION: invalida questa chiamata se l'utente cambia filtro prima che finisca
     return () => {
       isActive = false;
     };
@@ -251,7 +280,6 @@ export default function CampusMap() {
   useEffect(() => {
     const activeCampus = campuses.find(c => c.id === selectedCampus);
     if (activeCampus?.geometry?.coordinates && mapRef.current) {
-      
       let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
 
       const extractCoords = (coords: any[]) => {
@@ -279,7 +307,6 @@ export default function CampusMap() {
         ];
 
         setMaxBounds(bounds);
-
         mapRef.current.fitBounds(
           [[minLng, minLat], [maxLng, maxLat]],
           { padding: 30, duration: 1000 } 
@@ -288,7 +315,6 @@ export default function CampusMap() {
     }
   }, [selectedCampus, campuses]);
 
-  // Helper per i filtri dinamici
   const toggleCategoryAdmin = (id: string) => {
     setSelectedCategoriesAdmin(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
   };
@@ -354,6 +380,14 @@ export default function CampusMap() {
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] w-full relative">
       
+      {/* SPINNER DI CARICAMENTO INIZIALE GPS */}
+      {isInitializingLocation && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm transition-all">
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600 mb-3"></div>
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Rilevamento posizione e geofence campus...</p>
+        </div>
+      )}
+
       {campuses.length > 0 && (
         <div className="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0">
           <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-2' : ''} gap-6`}>
@@ -367,7 +401,7 @@ export default function CampusMap() {
                 onClick={() => setIsCampusDropdownOpen(!isCampusDropdownOpen)}
                 className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
               >
-                <span className="truncate pr-2">
+                <span className={`truncate pr-2 ${selectedCampus === '' ? 'text-slate-400 dark:text-slate-500 font-normal italic' : 'font-semibold'}`}>
                   {selectedCampus === '' 
                     ? "Seleziona un campus..." 
                     : campuses.find(c => c.id === selectedCampus)?.name || 'Campus Selezionato'}
@@ -379,6 +413,12 @@ export default function CampusMap() {
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setIsCampusDropdownOpen(false)}></div>
                   <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                    
+                    {/* Opzione segnaposto non cliccabile */}
+                    <div className="px-4 py-3 h-12 flex items-center text-sm text-slate-400 dark:text-slate-500 italic bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 select-none">
+                      Seleziona un campus...
+                    </div>
+
                     {campuses.map((campus) => (
                       <div 
                         key={campus.id} 
@@ -401,7 +441,6 @@ export default function CampusMap() {
               )}
             </div>
 
-            {/* FILTRO CATEGORIA (Solo Admin, Multiplo) */}
             {isAdmin && (
               <div className="relative">
                 <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -450,7 +489,6 @@ export default function CampusMap() {
             )}
           </div>
 
-          {/* FILTRI DINAMICI SUI METADATI */}
           {filterableAttributes.length > 0 && (
             <div className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-end gap-4">
               {filterableAttributes.map((attr: any) => (
