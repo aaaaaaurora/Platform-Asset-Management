@@ -1048,80 +1048,92 @@ def export_assets():
         requested_categories = [c.strip() for c in requested_category_param.split(',')]
         mongo_query['category_id'] = {'$in': requested_categories}
         
-    # 3. Filtri Dinamici
+    # 3. Filtri Dinamici sugli Attributi e Raggruppamento per Categoria (Logica OR Indipendente)
     def parse_filter_value(v):
+        """Tenta il cast del valore stringa al tipo nativo corretto."""
         v = v.strip()
         if v.lower() == 'true': return True
         if v.lower() == 'false': return False
-        try: return float(v)
-        except ValueError: return v
+        try:
+            return float(v) 
+        except ValueError:
+            return v 
 
+    # Raccogliamo i filtri dinamici suddivisi per prefisso o mappati sugli attributi
+    # Supponiamo che il frontend invii parametri tipo attr_<nome_attr>
+    dynamic_filters_per_attr = {}
     for key, value in request.args.items():
-        if key.startswith('attr_'):
+        if key.startswith('attr_') and value.strip():
             attr_name = key[5:]
             if ',' in value:
                 parsed_values = [parse_filter_value(v) for v in value.split(',')]
-                mongo_query[f'metadata.{attr_name}'] = {'$in': parsed_values}
+                dynamic_filters_per_attr[f'metadata.{attr_name}'] = {'$in': parsed_values}
             else:
-                mongo_query[f'metadata.{attr_name}'] = parse_filter_value(value)
+                dynamic_filters_per_attr[f'metadata.{attr_name}'] = parse_filter_value(value)
+
+    # Costruiamo la query finale combinando Categorie e filtri dinamici in modo indipendente ($or)
+    category_id_param = request.args.get('category_id')
+    
+    if category_id_param and dynamic_filters_per_attr:
+        requested_categories = [c.strip() for c in category_id_param.split(',')]
+        
+        # Se ci sono più categorie selezionate, creiamo un ramo $or indipendente per ciascuna
+        or_clauses = []
+        for cat_id in requested_categories:
+            cat_query = {'category_id': cat_id}
+            
+            # Verifichiamo quali filtri dinamici appartengono a questa categoria 
+            # (oppure applichiamo i filtri globalmente se la query tocca attributi di quella categoria)
+            # Per semplicità indipendente, applichiamo i filtri globali inseriti dall'utente 
+            # all'interno del sotto-blocco della categoria specifica:
+            sub_query = {**mongo_query, 'category_id': cat_id, **dynamic_filters_per_attr}
+            or_clauses.append(sub_query)
+            
+        # Sostituiamo la query con l'operatore logico $or
+        if 'category_id' in mongo_query:
+            del mongo_query['category_id']
+        mongo_query['$or'] = or_clauses
+
+    elif dynamic_filters_per_attr and not category_id_param:
+        # Se non è stata selezionata una categoria specifica ma ci sono filtri dinamici,
+        # li applichiamo normalmente
+        for k, v in dynamic_filters_per_attr.items():
+            mongo_query[k] = v
+            
+    # 4. Configurazione Paginazione
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 500)) # Alzato a 500 per la mappa (gestione massiva)
+        if page < 1: page = 1
+        if limit < 1 or limit > 1000: limit = 500
+    except ValueError:
+        page = 1
+        limit = 500
+        
+    skip = (page - 1) * limit
 
     try:
-        assets_list = list(assets_col.find(mongo_query))
+        # 5. Esecuzione query paginata su MongoDB
+        cursor = assets_col.find(mongo_query).skip(skip).limit(limit)
+        assets_list = list(cursor)
         
-        # Recupero nomi categorie in cache per la colonna descrittiva
-        cat_cache = {str(c['_id']): c.get('name', 'Sconosciuta') for c in categories_col.find()}
+        # Recupero del numero totale di documenti che matchano i filtri
+        total_count = assets_col.count_documents(mongo_query)
         
-        # Estrazione dinamica delle chiavi dei metadati da tutti gli asset
-        meta_keys = set()
-        for asset in assets_list:
-            meta_keys.update(asset.get('metadata', {}).keys())
-        sorted_meta = sorted(list(meta_keys))
-
-        import io
-        import csv
-        from flask import Response
+        serialized_assets = [serialize_mongo_doc(asset) for asset in assets_list]
         
-        output = io.StringIO()
-        output.write('\ufeff') # BOM per costringere Excel a leggere l'UTF-8
+        return jsonify({
+            "assets": serialized_assets,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total_count": total_count,
+                "total_pages": (total_count + limit - 1) // limit
+            }
+        }), 200
         
-        # Generazione Header dinamico
-        headers = ['ID Seriale', 'Categoria', 'Campus', 'Latitudine', 'Longitudine', 'Data Creazione'] + [k.replace('_', ' ').title() for k in sorted_meta]
-        writer = csv.writer(output, delimiter=';')
-        writer.writerow(headers)
-
-        # Popolamento Righe
-        for asset in assets_list:
-            cat_name = cat_cache.get(str(asset.get('category_id')), 'Sconosciuta')
-            camp_name = get_cached_campus_name(asset.get('campus_id')) or asset.get('campus_id')
-            coords = asset.get('geometry', {}).get('coordinates', ['', ''])
-            lng = coords[0] if len(coords) > 0 else ''
-            lat = coords[1] if len(coords) > 1 else ''
-            
-            # Troncamento orario, mostriamo solo la data
-            created_at = asset.get('created_at', '')[:10]
-            
-            row = [str(asset.get('_id')), cat_name, camp_name, str(lat), str(lng), created_at]
-            
-            # Popolamento valori attributi dinamici
-            meta = asset.get('metadata', {})
-            for k in sorted_meta:
-                val = meta.get(k, '')
-                if isinstance(val, list):
-                    val = ", ".join(map(str, val))
-                elif isinstance(val, bool):
-                    val = "Sì" if val else "No"
-                row.append(str(val))
-                
-            writer.writerow(row)
-
-        return Response(
-            output.getvalue(),
-            mimetype="text/csv",
-            headers={"Content-Disposition": "attachment; filename=assets_export.csv"}
-        )
-
     except Exception as e:
-        return error_response(f"Errore durante l'esportazione CSV: {str(e)}", 500)
+        return error_response(f"Errore durante la ricerca degli asset: {str(e)}", 500)
 
 # ===================================================================================
 # ENDPOINT: Eliminazione di un Asset esistente (soft delete con tracciamento storico)
