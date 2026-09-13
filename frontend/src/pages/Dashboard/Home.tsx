@@ -1,7 +1,6 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import PageMeta from "../../components/common/PageMeta";
 import { useAuth } from "../../context/AuthContext";
-import { io } from "socket.io-client"; // <-- AGGIUNTA: Import WebSocket
 
 // Componenti
 import AssetMetrics from "../../components/dashboard/AssetMetrics";
@@ -35,12 +34,6 @@ export default function Home() {
   const [metrics, setMetrics] = useState<any>(null);
   const [charts, setCharts] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  // <-- AGGIUNTA: REF PER I FILTRI WEBSOCKET -->
-  const filtersRef = useRef({ selectedCampuses, selectedCategories, token });
-  useEffect(() => {
-    filtersRef.current = { selectedCampuses, selectedCategories, token };
-  }, [selectedCampuses, selectedCategories, token]);
 
   const displayFirstName = user?.first_name || (user?.name ? user.name.split(' ')[0] : '');
   const greeting = "Benvenuta";
@@ -95,37 +88,6 @@ export default function Home() {
 
     fetchDashboardData();
   }, [token, selectedCampuses, selectedCategories]);
-
-  // <-- AGGIUNTA: CONNESSIONE WEBSOCKET (Fetch Silenzioso) -->
-  useEffect(() => {
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-    const socket = io(baseUrl, { 
-      path: '/api/log/socket.io',
-      transports: ['polling'] });
-
-    socket.on('new_log_event', async () => {
-      const { selectedCampuses: sc, selectedCategories: cat, token: t } = filtersRef.current;
-      if (!t) return;
-
-      const apiUrl = import.meta.env.VITE_API_URL || '';
-      const baseParams = new URLSearchParams();
-      if (sc.length > 0) baseParams.append('campus_id', sc.join(','));
-      if (cat.length > 0) baseParams.append('category_id', cat.join(','));
-
-      try {
-        const [metricsRes, chartsRes] = await Promise.all([
-          fetch(`${apiUrl}/log/api/dashboard/metrics?${baseParams.toString()}`, { headers: { Authorization: `Bearer ${t}` } }),
-          fetch(`${apiUrl}/log/api/dashboard/charts?${baseParams.toString()}`, { headers: { Authorization: `Bearer ${t}` } })
-        ]);
-        if (metricsRes.ok) setMetrics(await metricsRes.json());
-        if (chartsRes.ok) setCharts(await chartsRes.json());
-      } catch (e) {
-        console.error("Errore fetch background websocket:", e);
-      }
-    });
-
-    return () => { socket.disconnect(); };
-  }, []);
 
   // Gestione dinamica delle checkbox
   const toggleCampus = (id: string) => {

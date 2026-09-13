@@ -58,14 +58,22 @@ export default function CampusMap() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const isAdmin = user?.role === 'AMMINISTRATORE';
+
   const focusAssetId = location.state?.focusAssetId;
   const focusCampusId = location.state?.focusCampusId;
 
   const [viewState, setViewState] = useState({ longitude: 14.7900, latitude: 40.7700, zoom: 15, pitch: 45, bearing: 0 });
   const [campuses, setCampuses] = useState<any[]>([]);
   
+  // FILTRO CAMPUS (Singolo)
   const [selectedCampus, setSelectedCampus] = useState<string>('');
   const [isCampusDropdownOpen, setIsCampusDropdownOpen] = useState(false);
+  
+  // FILTRI AGGIUNTIVI (Copiali da AssetList)
+  const [selectedCategoriesAdmin, setSelectedCategoriesAdmin] = useState<string[]>([]);
+  const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+  const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
   
   const [categories, setCategories] = useState<any[]>([]);
   const [maxBounds, setMaxBounds] = useState<[number, number, number, number] | undefined>(undefined);
@@ -77,7 +85,6 @@ export default function CampusMap() {
   const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
   const [permissionLimitationMsg, setPermissionLimitationMsg] = useState<string | null>(null);
   
-  // STATO AGGIUNTIVO PER IL CLUSTERING
   const [clusters, setClusters] = useState<any[]>([]);
 
   useEffect(() => {
@@ -93,7 +100,7 @@ export default function CampusMap() {
         },
         (error) => {
           console.warn("Geolocalizzazione negata o fallita.", error);
-          if (error.code === 1) { // PERMISSION_DENIED
+          if (error.code === 1) { 
             setPermissionLimitationMsg("Consenso GPS rifiutato. L'utente senza GPS è limitato nella visualizzazione e ricerca degli asset intorno a lui. Concedi i permessi dalle impostazioni del dispositivo.");
           }
           if (!focusCampusId) {
@@ -141,6 +148,11 @@ export default function CampusMap() {
     }
   }, [user, token, focusCampusId]);
 
+  // Gestione Reset Filtri Dinamici al cambio categoria
+  useEffect(() => {
+    setDynamicFilters({});
+  }, [selectedCategoriesAdmin]);
+
   useEffect(() => {
     const fetchAllMapAssets = async () => {
       if (!token || !selectedCampus) {
@@ -157,9 +169,15 @@ export default function CampusMap() {
         params.append('limit', limit.toString());
         params.append('page', '1');
         
-        if (user?.role === 'OPERATORE' && user?.category_id) {
+        if (isAdmin && selectedCategoriesAdmin.length > 0) {
+          params.append('category_id', selectedCategoriesAdmin.join(','));
+        } else if (!isAdmin && user?.category_id) {
           params.append('category_id', user.category_id);
         }
+
+        Object.entries(dynamicFilters).forEach(([key, value]) => {
+          if (value) params.append(`attr_${key}`, value);
+        });
 
         const url = `${baseUrl}/asset/api/assets?${params.toString()}`;
         const response = await fetch(url, {
@@ -192,7 +210,7 @@ export default function CampusMap() {
           });
         }
         
-        if (user?.role === 'OPERATORE' && user?.category_id) {
+        if (!isAdmin && user?.category_id) {
           allFetchedAssets = allFetchedAssets.filter((a: any) => a.category_id === user.category_id);
         }
 
@@ -208,7 +226,7 @@ export default function CampusMap() {
     } else {
       setAssets([]); 
     }
-  }, [selectedCampus, token, user]);
+  }, [selectedCampus, token, user, selectedCategoriesAdmin, dynamicFilters, isAdmin]);
 
   useEffect(() => {
       if (focusAssetId && assets.length > 0) {
@@ -260,6 +278,23 @@ export default function CampusMap() {
     }
   }, [selectedCampus, campuses]);
 
+  // Helper per i filtri dinamici
+  const toggleCategoryAdmin = (id: string) => {
+    setSelectedCategoriesAdmin(prev => prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]);
+  };
+
+  const handleDynamicFilterChange = (attrName: string, value: string) => {
+    setDynamicFilters(prev => ({ ...prev, [attrName]: value }));
+  };
+
+  const activeCategoryIdForFilters = isAdmin 
+    ? (selectedCategoriesAdmin.length === 1 ? selectedCategoriesAdmin[0] : null)
+    : user?.category_id;
+
+  const filterableAttributes = activeCategoryIdForFilters 
+    ? categories.find(c => c._id === activeCategoryIdForFilters)?.attributes?.filter((attr: any) => attr.filterable && attr.status !== 'unavailable') || []
+    : [];
+
   const categoryIconMap = useMemo(() => {
     const dict: Record<string, string> = {};
     categories.forEach(c => {
@@ -279,7 +314,6 @@ export default function CampusMap() {
       : null;
   }, [campuses, selectedCampus]);
 
-  // LOGICA DI CLUSTERING IN MEMORIA
   const supercluster = useMemo(() => {
     const sc = new Supercluster({ radius: 60, maxZoom: 18 });
     const points = assets.map(asset => ({
@@ -291,7 +325,6 @@ export default function CampusMap() {
     return sc;
   }, [assets]);
 
-  // CALCOLO CLUSTER VISIBILI AD OGNI MOVIMENTO
   useEffect(() => {
     if (mapRef.current) {
       const bounds = mapRef.current.getBounds();
@@ -312,9 +345,11 @@ export default function CampusMap() {
     <div className="flex flex-col h-[calc(100vh-120px)] w-full relative">
       
       {campuses.length > 0 && (
-        <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1 relative w-full">
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0">
+          <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-2' : ''} gap-6`}>
+            
+            {/* FILTRO CAMPUS (Singolo) */}
+            <div className="relative">
               <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Filtro Campus
               </label>
@@ -355,7 +390,97 @@ export default function CampusMap() {
                 </>
               )}
             </div>
+
+            {/* FILTRO CATEGORIA (Solo Admin, Multiplo) */}
+            {isAdmin && (
+              <div className="relative">
+                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Filtro Categoria
+                </label>
+                <div 
+                  onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-700 dark:text-white outline-none cursor-pointer flex justify-between items-center transition-colors hover:border-blue-400"
+                >
+                  <span className="truncate pr-2">
+                    {selectedCategoriesAdmin.length === 0 
+                      ? "Tutte le Categorie" 
+                      : selectedCategoriesAdmin.length === 1 
+                        ? categories.find(c => c._id === selectedCategoriesAdmin[0])?.name || 'Categoria Selezionata'
+                        : `${selectedCategoriesAdmin.length} Categorie selezionate`}
+                  </span>
+                  <svg className={`w-4 h-4 text-slate-500 transition-transform ${isCategoryDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+
+                {isCategoryDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsCategoryDropdownOpen(false)}></div>
+                    <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
+                      <div 
+                        className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-bold text-slate-700 dark:text-white border-b border-slate-100 dark:border-slate-700 transition-colors"
+                        onClick={() => { setSelectedCategoriesAdmin([]); setIsCategoryDropdownOpen(false); }}
+                      >
+                        <div className="w-4 mr-3 flex-none"></div>
+                        Tutte le Categorie
+                      </div>
+                      {categories.map((category) => (
+                        <label key={category._id} className="flex items-center px-4 py-3 h-12 hover:bg-slate-50 dark:hover:bg-slate-700 cursor-pointer text-sm font-medium text-slate-600 dark:text-slate-300 transition-colors border-b border-slate-50 dark:border-slate-700/50 last:border-0">
+                          <input
+                            type="checkbox"
+                            checked={selectedCategoriesAdmin.includes(category._id)}
+                            onChange={() => toggleCategoryAdmin(category._id)}
+                            className="mr-3 h-4 w-4 flex-none rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900 cursor-pointer"
+                          />
+                          <span className="truncate">{category.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* FILTRI DINAMICI SUI METADATI */}
+          {filterableAttributes.length > 0 && (
+            <div className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-end gap-4">
+              {filterableAttributes.map((attr: any) => (
+                <div key={attr.name} className="w-full sm:w-[200px]">
+                  <label className="mb-1.5 block text-[11px] font-bold text-slate-500 dark:text-slate-400 capitalize tracking-wide truncate">
+                    {attr.name.replace('_', ' ')}
+                  </label>
+                  
+                  {attr.type === 'enum' ? (
+                    <select 
+                      value={dynamicFilters[attr.name] || ''}
+                      onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                      className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                    >
+                      <option value="">Tutti</option>
+                      {attr.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                    </select>
+                  ) : attr.type === 'boolean' ? (
+                     <select 
+                      value={dynamicFilters[attr.name] || ''}
+                      onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                      className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                    >
+                      <option value="">Tutti</option>
+                      <option value="true">Sì</option>
+                      <option value="false">No</option>
+                    </select>
+                  ) : (
+                    <input 
+                      type={attr.type === 'number' ? 'number' : 'text'}
+                      value={dynamicFilters[attr.name] || ''}
+                      onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                      placeholder="Cerca..."
+                      className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -369,7 +494,6 @@ export default function CampusMap() {
           interactive={true}
           maxBounds={maxBounds} 
           onLoad={() => {
-            // Forza un ricalcolo iniziale dei cluster al caricamento della mappa
             if (mapRef.current) {
               const bounds = mapRef.current.getBounds();
               if (bounds) {
@@ -388,7 +512,6 @@ export default function CampusMap() {
             </Source>
           )}
 
-          {/* RENDERING DINAMICO DEI CLUSTER */}
           {clusters.map(cluster => {
             const [longitude, latitude] = cluster.geometry.coordinates;
             const { cluster: isCluster, point_count: pointCount, asset } = cluster.properties;
@@ -450,7 +573,6 @@ export default function CampusMap() {
         )}
       </div>
 
-      {/* MODALE AVVISO LIMITAZIONI GPS */}
       {permissionLimitationMsg && createPortal(
         <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="relative w-full max-w-sm rounded-xl bg-white shadow-2xl dark:bg-boxdark border border-stroke dark:border-strokedark overflow-hidden animate-fade-in-up">
