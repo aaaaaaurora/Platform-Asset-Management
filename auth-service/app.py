@@ -351,7 +351,7 @@ def verify_2fa():
         "role": role.name.value,  # Estrae la stringa dall'Enum
         "campus_ids": campus_ids,
         "category_id": category_id,
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=1),
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=8),
         "first_name": user.first_name,
         "email": user.email       
     }
