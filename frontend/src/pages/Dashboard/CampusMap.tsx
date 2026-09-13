@@ -154,9 +154,11 @@ export default function CampusMap() {
   }, [selectedCategoriesAdmin]);
 
   useEffect(() => {
+    let isActive = true; // <-- FLAG DI SICUREZZA PER EVITARE RACE CONDITIONS
+
     const fetchAllMapAssets = async () => {
       if (!token || !selectedCampus) {
-        setAssets([]);
+        if (isActive) setAssets([]);
         return;
       }
 
@@ -214,7 +216,10 @@ export default function CampusMap() {
           allFetchedAssets = allFetchedAssets.filter((a: any) => a.category_id === user.category_id);
         }
 
-        setAssets(allFetchedAssets);
+        // AGGIORNAMENTO STATO SOLO SE I FILTRI NON SONO CAMBIATI NEL FRATTEMPO
+        if (isActive) {
+          setAssets(allFetchedAssets);
+        }
         
       } catch (error) { 
         console.error("Errore nel recupero massivo degli asset per la mappa:", error); 
@@ -224,8 +229,13 @@ export default function CampusMap() {
     if (selectedCampus) {
       fetchAllMapAssets();
     } else {
-      setAssets([]); 
+      if (isActive) setAssets([]); 
     }
+
+    // CLEANUP FUNCTION: invalida questa chiamata se l'utente cambia filtro prima che finisca
+    return () => {
+      isActive = false;
+    };
   }, [selectedCampus, token, user, selectedCategoriesAdmin, dynamicFilters, isAdmin]);
 
   useEffect(() => {
