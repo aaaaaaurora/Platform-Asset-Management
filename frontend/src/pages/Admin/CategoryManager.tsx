@@ -474,7 +474,7 @@ export default function CategoryEditor() {
         </div>
 
         <AttributeFormModal isOpen={attrFormOpen} initialData={editingAttr} onClose={() => setAttrFormOpen(false)} onSave={handleSaveAttribute} isSubmitting={false} />
-        <ConfirmAlertModal isOpen={conflictPrompt.isOpen} title="Conflitto Storico" confirmText="Depreca e Genera Nuovo" confirmColor="amber" onClose={() => setConflictPrompt({isOpen: false, pendingAttr: null})} onConfirm={handleResolveConflict} isSubmitting={isSubmitting} message={<>Esistono vecchi asset con questo formato. Vuoi deprecare il vecchio attributo e generarne uno nuovo?</>} />
+        <ConfirmAlertModal isOpen={conflictPrompt.isOpen} title="Conflitto di formato" confirmText="Crea nuova versione" confirmColor="amber" onClose={() => setConflictPrompt({isOpen: false, pendingAttr: null})} onConfirm={handleResolveConflict} isSubmitting={isSubmitting} message={<>Il campo è attualmente in uso da assets preesistenti e non può essere alterato. Vuoi generare una nuova versione dell'attributo mantenendo intatto l'originale?</>} />
         <ConfirmAlertModal isOpen={deleteCategoryAlert} title="Elimina Categoria" confirmText="Elimina definitivamente" confirmColor="rose" onClose={() => setDeleteCategoryAlert(false)} onConfirm={handleDeleteCategory} isSubmitting={isSubmitting} message={<>Questa operazione eliminerà l'intera categoria. Sicuro di procedere?</>} />
       </div>
     </>
