@@ -607,41 +607,41 @@ export default function AssetList() {
           </div>
         )}
 
-        {/* FILTRI DINAMICI SUDDIVISI PER CATEGORIA */}
+        {/* FILTRI DINAMICI COMPATTI PER CATEGORIA */}
         {activeCategoriesForFilters.length > 0 && activeCategoriesForFilters.some(cat => cat.attributes?.some((attr: any) => attr.filterable && attr.status !== 'unavailable')) && (
-          <div className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-700 flex flex-col gap-4">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-col gap-2.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Filtri Specifici per Categoria
             </span>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="flex flex-wrap items-center gap-4">
               {activeCategoriesForFilters.map(cat => {
                 const catAttributes = cat.attributes?.filter((attr: any) => attr.filterable && attr.status !== 'unavailable') || [];
                 if (catAttributes.length === 0) return null;
 
                 return (
-                  <div key={cat._id} className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 p-4">
-                    {/* Intestazione della categoria */}
-                    <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-200 dark:border-slate-700">
-                      <span className="text-base">{cat.icon || '📌'}</span>
-                      <h4 className="text-xs font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-wide truncate">
+                  <div key={cat._id} className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
+                    {/* Badge Categoria */}
+                    <div className="flex items-center gap-1.5 pr-2 border-r border-slate-200 dark:border-slate-700">
+                      <span className="text-sm">{cat.icon || '📌'}</span>
+                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">
                         {cat.name}
-                      </h4>
+                      </span>
                     </div>
 
-                    {/* Attributi dinamici di questa categoria */}
-                    <div className="flex flex-col gap-3">
+                    {/* Controlli compatti */}
+                    <div className="flex flex-wrap items-center gap-3">
                       {catAttributes.map((attr: any) => (
-                        <div key={attr.name}>
-                          <label className="mb-1 block text-[11px] font-bold text-slate-500 dark:text-slate-400 capitalize tracking-wide truncate">
-                            {attr.name.replace('_', ' ')}
+                        <div key={attr.name} className="flex items-center gap-1.5">
+                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 capitalize whitespace-nowrap">
+                            {attr.name.replace('_', ' ')}:
                           </label>
                           
                           {attr.type === 'enum' ? (
                             <select 
                               value={dynamicFilters[attr.name] || ''}
                               onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
-                              className="w-full rounded-md border border-slate-300 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-white outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600"
+                              className="rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
                             >
                               <option value="">Tutti</option>
                               {attr.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
@@ -650,7 +650,7 @@ export default function AssetList() {
                              <select 
                               value={dynamicFilters[attr.name] || ''}
                               onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
-                              className="w-full rounded-md border border-slate-300 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-white outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600"
+                              className="rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
                             >
                               <option value="">Tutti</option>
                               <option value="true">Sì</option>
@@ -662,7 +662,7 @@ export default function AssetList() {
                               value={dynamicFilters[attr.name] || ''}
                               onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
                               placeholder="Cerca..."
-                              className="w-full rounded-md border border-slate-300 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs text-slate-800 dark:text-white outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600"
+                              className="w-28 rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
                             />
                           )}
                         </div>
