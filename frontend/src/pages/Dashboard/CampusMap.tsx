@@ -4,7 +4,53 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Map, { Source, Layer, MapRef, Marker } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useAuth } from '../../context/AuthContext';
-import WarningFormModal from '../../components/guest/WarningFormModal'; 
+import WarningFormModal from '../../components/guest/WarningFormModal';
+import Supercluster from 'supercluster';
+
+function AuthorizedImage({ mediaId, token }: { mediaId: string; token: string }) {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchImage = async () => {
+      try {
+        const response = `${import.meta.env.VITE_API_URL}/media/images/${mediaId}`;
+        const res = await fetch(response, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const blob = await res.blob();
+          if (isMounted) {
+            setImageSrc(URL.createObjectURL(blob));
+          }
+        }
+      } catch (err) {
+        console.error("Errore caricamento immagine:", err);
+      }
+    };
+    fetchImage();
+    return () => {
+      isMounted = false;
+      if (imageSrc) URL.revokeObjectURL(imageSrc);
+    };
+  }, [mediaId, token]);
+
+  if (!imageSrc) {
+    return (
+      <div className="h-48 w-full bg-gray-100 dark:bg-meta-4 animate-pulse rounded-lg flex items-center justify-center text-xs text-gray-500">
+        Caricamento immagine...
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageSrc}
+      alt="Immagine Asset"
+      className="h-48 w-full object-cover rounded-lg shadow-sm border border-stroke dark:border-strokedark bg-gray-100 dark:bg-meta-4"
+    />
+  );
+}
 
 export default function CampusMap() {
   const mapRef = useRef<MapRef>(null);
@@ -18,7 +64,6 @@ export default function CampusMap() {
   const [viewState, setViewState] = useState({ longitude: 14.7900, latitude: 40.7700, zoom: 15, pitch: 45, bearing: 0 });
   const [campuses, setCampuses] = useState<any[]>([]);
   
-  // MODIFICA: Inizializzato a vuoto per la selezione di default
   const [selectedCampus, setSelectedCampus] = useState<string>('');
   const [isCampusDropdownOpen, setIsCampusDropdownOpen] = useState(false);
   
@@ -30,6 +75,10 @@ export default function CampusMap() {
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   
   const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
+  const [permissionLimitationMsg, setPermissionLimitationMsg] = useState<string | null>(null);
+  
+  // STATO AGGIUNTIVO PER IL CLUSTERING
+  const [clusters, setClusters] = useState<any[]>([]);
 
   useEffect(() => {
     if ('geolocation' in navigator) {
@@ -38,18 +87,21 @@ export default function CampusMap() {
           const coords = { longitude: position.coords.longitude, latitude: position.coords.latitude };
           setUserLocation(coords);
           
-          // Se non è stato imposto un campus specifico dal router, vai alla posizione utente
           if (!focusCampusId) {
             setViewState(prev => ({ ...prev, ...coords }));
           }
         },
         (error) => {
-          console.warn("Geolocalizzazione negata o fallita. Uso coordinate di default.", error);
+          console.warn("Geolocalizzazione negata o fallita.", error);
+          if (error.code === 1) { // PERMISSION_DENIED
+            setPermissionLimitationMsg("Consenso GPS rifiutato. L'utente senza GPS è limitato nella visualizzazione e ricerca degli asset intorno a lui. Concedi i permessi dalle impostazioni del dispositivo.");
+          }
           if (!focusCampusId) {
             const defaultCoords = { longitude: 14.7900, latitude: 40.7700 };
             setViewState(prev => ({ ...prev, ...defaultCoords }));
           }
-        }
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
       );
     }
   }, [focusCampusId]);
@@ -68,7 +120,6 @@ export default function CampusMap() {
           if (focusCampusId && realCampuses.some((c: any) => c.id === focusCampusId)) {
             setSelectedCampus(focusCampusId);
           } else {
-            // MODIFICA: Assicura che si parta dalla voce vuota, non dal primo array
             setSelectedCampus('');
           }
         } catch (error) { console.error("Errore recupero campus:", error); }
@@ -90,7 +141,6 @@ export default function CampusMap() {
     }
   }, [user, token, focusCampusId]);
 
-  // <-- NUOVA LOGICA: Fetch Parallela Paginata -->
   useEffect(() => {
     const fetchAllMapAssets = async () => {
       if (!token || !selectedCampus) {
@@ -99,7 +149,7 @@ export default function CampusMap() {
       }
 
       try {
-        const limit = 500; // Massimo consentito dal backend per pagina
+        const limit = 500; 
         const baseUrl = import.meta.env.VITE_API_URL || '';
         
         const params = new URLSearchParams();
@@ -107,12 +157,10 @@ export default function CampusMap() {
         params.append('limit', limit.toString());
         params.append('page', '1');
         
-        // Se l'utente è un operatore, richiediamo al backend solo gli asset della sua categoria
         if (user?.role === 'OPERATORE' && user?.category_id) {
           params.append('category_id', user.category_id);
         }
 
-        // 1. Fetch della prima pagina per ottenere i metadati di paginazione
         const url = `${baseUrl}/asset/api/assets?${params.toString()}`;
         const response = await fetch(url, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -124,7 +172,6 @@ export default function CampusMap() {
         let allFetchedAssets = data.assets || [];
         const totalPages = data.pagination?.total_pages || 1;
 
-        // 2. Fetch parallela di tutte le pagine successive (se esistono)
         if (totalPages > 1) {
           const fetchPromises = [];
           for (let i = 2; i <= totalPages; i++) {
@@ -136,10 +183,8 @@ export default function CampusMap() {
             );
           }
 
-          // Attendiamo che tutte le pagine vengano scaricate
           const pagineSuccessive = await Promise.all(fetchPromises);
           
-          // 3. Concatenazione di tutti gli array
           pagineSuccessive.forEach(pageData => {
             if (pageData.assets) {
               allFetchedAssets = [...allFetchedAssets, ...pageData.assets];
@@ -147,12 +192,10 @@ export default function CampusMap() {
           });
         }
         
-        // Filtro di sicurezza aggiuntivo lato frontend
         if (user?.role === 'OPERATORE' && user?.category_id) {
           allFetchedAssets = allFetchedAssets.filter((a: any) => a.category_id === user.category_id);
         }
 
-        // 4. Salviamo l'array completo nello stato della mappa
         setAssets(allFetchedAssets);
         
       } catch (error) { 
@@ -160,11 +203,10 @@ export default function CampusMap() {
       }
     };
     
-    // Effettua il fetch degli asset solo se è stato effettivamente selezionato un campus
     if (selectedCampus) {
       fetchAllMapAssets();
     } else {
-      setAssets([]); // Se torno su "Seleziona...", svuoto la mappa
+      setAssets([]); 
     }
   }, [selectedCampus, token, user]);
 
@@ -237,6 +279,35 @@ export default function CampusMap() {
       : null;
   }, [campuses, selectedCampus]);
 
+  // LOGICA DI CLUSTERING IN MEMORIA
+  const supercluster = useMemo(() => {
+    const sc = new Supercluster({ radius: 60, maxZoom: 18 });
+    const points = assets.map(asset => ({
+      type: 'Feature' as const,
+      properties: { cluster: false, assetId: asset._id, asset },
+      geometry: { type: 'Point' as const, coordinates: asset.geometry.coordinates }
+    }));
+    sc.load(points);
+    return sc;
+  }, [assets]);
+
+  // CALCOLO CLUSTER VISIBILI AD OGNI MOVIMENTO
+  useEffect(() => {
+    if (mapRef.current) {
+      const bounds = mapRef.current.getBounds();
+      if (bounds) {
+        const bbox: [number, number, number, number] = [
+          bounds.getWest(),
+          bounds.getSouth(),
+          bounds.getEast(),
+          bounds.getNorth()
+        ];
+        const zoom = Math.round(viewState.zoom);
+        setClusters(supercluster.getClusters(bbox, zoom));
+      }
+    }
+  }, [assets, viewState, supercluster, maxBounds]);
+
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] w-full relative">
       
@@ -297,6 +368,18 @@ export default function CampusMap() {
           mapStyle="https://tiles.openfreemap.org/styles/liberty" 
           interactive={true}
           maxBounds={maxBounds} 
+          onLoad={() => {
+            // Forza un ricalcolo iniziale dei cluster al caricamento della mappa
+            if (mapRef.current) {
+              const bounds = mapRef.current.getBounds();
+              if (bounds) {
+                setClusters(supercluster.getClusters(
+                  [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()], 
+                  Math.round(viewState.zoom)
+                ));
+              }
+            }
+          }}
         >
           {activeCampusData && (
             <Source id="campus-boundary" type="geojson" data={activeCampusData as any}>
@@ -305,21 +388,46 @@ export default function CampusMap() {
             </Source>
           )}
 
-          {assets.map(asset => (
-            <Marker 
-              key={asset._id} 
-              longitude={asset.geometry.coordinates[0]} 
-              latitude={asset.geometry.coordinates[1]} 
-              onClick={(e) => { 
-                e.originalEvent.stopPropagation(); 
-                setSelectedAsset(asset);
-              }}
-            >
-              <div className="text-2xl cursor-pointer hover:scale-125 transition-transform">
-                {getAssetIcon(asset)}
-              </div>
-            </Marker>
-          ))}
+          {/* RENDERING DINAMICO DEI CLUSTER */}
+          {clusters.map(cluster => {
+            const [longitude, latitude] = cluster.geometry.coordinates;
+            const { cluster: isCluster, point_count: pointCount, asset } = cluster.properties;
+
+            if (isCluster) {
+              return (
+                <Marker 
+                  key={`cluster-${cluster.id}`} 
+                  longitude={longitude} 
+                  latitude={latitude}
+                  onClick={(e) => {
+                    e.originalEvent.stopPropagation();
+                    const expansionZoom = Math.min(supercluster.getClusterExpansionZoom(cluster.id), 20);
+                    mapRef.current?.flyTo({ center: [longitude, latitude], zoom: expansionZoom, speed: 1.2 });
+                  }}
+                >
+                  <div className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-blue-600/90 text-white shadow-lg border-2 border-white font-bold hover:scale-110 transition-transform">
+                    {pointCount}
+                  </div>
+                </Marker>
+              );
+            }
+
+            return (
+              <Marker 
+                key={asset._id} 
+                longitude={longitude} 
+                latitude={latitude} 
+                onClick={(e) => { 
+                  e.originalEvent.stopPropagation(); 
+                  setSelectedAsset(asset);
+                }}
+              >
+                <div className="text-2xl cursor-pointer hover:scale-125 transition-transform">
+                  {getAssetIcon(asset)}
+                </div>
+              </Marker>
+            );
+          })}
 
           {userLocation && (
             <Marker longitude={userLocation.longitude} latitude={userLocation.latitude}>
@@ -341,6 +449,30 @@ export default function CampusMap() {
           </button>
         )}
       </div>
+
+      {/* MODALE AVVISO LIMITAZIONI GPS */}
+      {permissionLimitationMsg && createPortal(
+        <div className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-sm rounded-xl bg-white shadow-2xl dark:bg-boxdark border border-stroke dark:border-strokedark overflow-hidden animate-fade-in-up">
+            <div className="p-5 text-center">
+              <svg className="mx-auto mb-3 w-10 h-10 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <h3 className="mb-2 text-lg font-bold text-black dark:text-white">Limitazioni Attive</h3>
+              <p className="mb-5 text-sm text-gray-500 dark:text-gray-400">
+                {permissionLimitationMsg}
+              </p>
+              <button 
+                onClick={() => setPermissionLimitationMsg(null)} 
+                className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700"
+              >
+                Ho capito
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {selectedAsset && createPortal(
         <>
@@ -377,12 +509,7 @@ export default function CampusMap() {
                 {selectedAsset.media_ids && selectedAsset.media_ids.length > 0 && (
                   <div className="mb-5 flex gap-2 overflow-x-auto pb-2">
                     {selectedAsset.media_ids.map((mediaId: string) => (
-                      <img
-                        key={mediaId}
-                        src={`${import.meta.env.VITE_API_URL}/media/images/${mediaId}`}
-                        alt="Immagine Asset"
-                        className="h-48 w-full object-cover rounded-lg shadow-sm border border-stroke dark:border-strokedark bg-gray-100 dark:bg-meta-4 flex items-center justify-center text-xs text-center text-gray-500"
-                      />
+                      <AuthorizedImage key={mediaId} mediaId={mediaId} token={token!} />
                     ))}
                   </div>
                 )}
