@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import PageMeta from '../../components/common/PageMeta';
 import { useAuth } from '../../context/AuthContext'; 
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { Capacitor } from '@capacitor/core';
 
 interface Attribute {
   name: string;
@@ -17,6 +19,12 @@ interface Category {
   attributes: Attribute[];
 }
 
+interface PhotoData {
+  file: File;
+  preview: string;
+  mediaId?: string;
+}
+
 const CreateAsset: React.FC = () => {
   const { user, token } = useAuth();
 
@@ -30,15 +38,14 @@ const CreateAsset: React.FC = () => {
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [matchedCampusId, setMatchedCampusId] = useState<string | null>(null); 
   
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [mediaId, setMediaId] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<PhotoData[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<any>(null);
 
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [metadata, setMetadata] = useState<Record<string, any>>({});
 
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,7 +72,6 @@ const CreateAsset: React.FC = () => {
     if (token) fetchCategories();
   }, [token]);
 
-  // Se l'utente è un operatore e le categorie sono caricate, imposta automaticamente la sua categoria e passa allo step successivo
   useEffect(() => {
     if (isOperator && user?.category_id && categories.length > 0) {
       setSelectedCategory(user.category_id);
@@ -76,12 +82,19 @@ const CreateAsset: React.FC = () => {
     }
   }, [isOperator, user, categories]);
 
-  const captureLocation = () => {
+  const captureLocation = async () => {
     setLoading('Acquisizione e validazione GPS...');
     setError(null);
     
-    if (!navigator.geolocation) {
-      setError('Geolocalizzazione non supportata dal browser.');
+    const campusList = user?.campus_ids || [];
+    if (campusList.length === 0) {
+      setError('Nessun campus assegnato al tuo profilo.');
+      setLoading(null);
+      return;
+    }
+
+    if (!('geolocation' in navigator)) {
+      setError("Il browser non supporta la geolocalizzazione.");
       setLoading(null);
       return;
     }
@@ -90,14 +103,7 @@ const CreateAsset: React.FC = () => {
       async (position) => {
         const lat = position.coords.latitude;
         const lng = position.coords.longitude;
-        const campusList = user?.campus_ids || [];
 
-        if (campusList.length === 0) {
-          setError('Nessun campus assegnato al tuo profilo.');
-          setLoading(null);
-          return;
-        }
-        
         try {
           const validationPromises = campusList.map(async (campusId: string) => {
             const res = await fetch(`${import.meta.env.VITE_API_URL}/geozone/api/geozones/verify-location`, {
@@ -115,7 +121,7 @@ const CreateAsset: React.FC = () => {
 
           const results = await Promise.allSettled(validationPromises);
           const validResult = results.find(
-            (r) => r.status === 'fulfilled' && r.value.isInside
+            (r): r is PromiseFulfilledResult<{campusId: string, isInside: boolean}> => r.status === 'fulfilled' && r.value.isInside
           );
 
           if (validResult && validResult.status === 'fulfilled') {
@@ -125,54 +131,135 @@ const CreateAsset: React.FC = () => {
             setError("Coordinate fuori perimetro! Ti trovi all'esterno di tutti i campus a te assegnati.");
           }
         } catch (err: any) {
-          console.warn("Geozone check fallito, bypass temporaneo per test:", err);
-          setError(`Impossibile validare il perimetro: ${err.message}. (Bypass attivo)`);
+          setError(`Impossibile validare il perimetro: ${err.message}. (Bypass attivo per test)`);
           setLocation({ lat, lng }); 
           setMatchedCampusId(campusList[0]);
         } finally {
           setLoading(null);
         }
       },
-      (err) => {
-        setError(`Errore GPS: ${err.message}. Controlla i permessi.`);
+      (error) => {
+        if (error.code === 1) { // PERMISSION_DENIED
+          setError("Senza il permesso GPS, il censimento degli asset è bloccato e limitato per l'operatore. Concedi i permessi dalle impostazioni del dispositivo.");
+        } else {
+          setError(`Errore GPS: ${error.message}`);
+        }
         setLoading(null);
       },
       { enableHighAccuracy: true, timeout: 15000 }
     );
   };
 
-  const handlePhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (mediaId) {
-        fetch(`${import.meta.env.VITE_API_URL}/media/images/${mediaId}`, {
-          method: 'DELETE',
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(err => console.error("Errore cancellazione vecchia foto:", err));
-        setMediaId(null);
+  const processSelectedFiles = (newFiles: File[]) => {
+    const newPhotos = newFiles.map(file => ({
+      file,
+      preview: URL.createObjectURL(file)
+    }));
+    setPhotos(prev => [...prev, ...newPhotos]);
+  };
+
+  const removePhoto = (index: number) => {
+    const photoToRemove = photos[index];
+    if (photoToRemove.mediaId) {
+      fetch(`${import.meta.env.VITE_API_URL}/media/images/${photoToRemove.mediaId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).catch(err => console.error("Errore cancellazione foto singola:", err));
+    }
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const takePhoto = async () => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const permissions = await Camera.checkPermissions();
+        if (permissions.camera !== 'granted') {
+          const request = await Camera.requestPermissions({ permissions: ['camera'] });
+          if (request.camera !== 'granted') {
+            throw new Error("Senza accesso alla fotocamera, il censimento è limitato e incompleto per l'operatore. Concedi i permessi dalle impostazioni del dispositivo.");
+          }
+        }
+
+        const image = await Camera.getPhoto({
+          quality: 90,
+          allowEditing: false,
+          resultType: CameraResultType.Uri,
+          source: CameraSource.Camera
+        });
+
+        if (image.webPath) {
+          const response = await fetch(image.webPath);
+          const blob = await response.blob();
+          const file = new File([blob], `camera_${Date.now()}.jpg`, { type: `image/${image.format || 'jpeg'}` });
+          processSelectedFiles([file]);
+        }
+      } catch (err: any) {
+        if (err.message !== 'User cancelled photos app') {
+          setError(err.message.includes('Senza accesso') ? err.message : `Errore Fotocamera: ${err.message}`);
+        }
       }
-      setPhotoFile(file);
-      setPhotoPreview(URL.createObjectURL(file));
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const pickFromGallery = async () => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const permissions = await Camera.checkPermissions();
+        if (permissions.photos !== 'granted') {
+          const request = await Camera.requestPermissions({ permissions: ['photos'] });
+          if (request.photos !== 'granted') {
+            throw new Error("Senza accesso alla galleria, il censimento è limitato e incompleto per l'operatore. Concedi i permessi dalle impostazioni del dispositivo.");
+          }
+        }
+
+        const gallery = await Camera.pickImages({
+          quality: 90,
+          limit: 0 
+        });
+        
+        const fetchedFiles = await Promise.all(gallery.photos.map(async (image, idx) => {
+          if (image.webPath) {
+            const response = await fetch(image.webPath);
+            const blob = await response.blob();
+            return new File([blob], `gallery_${Date.now()}_${idx}.jpg`, { type: `image/${image.format || 'jpeg'}` });
+          }
+          return null;
+        }));
+        
+        processSelectedFiles(fetchedFiles.filter(Boolean) as File[]);
+      } catch (err: any) {
+        if (err.message !== 'User cancelled photos app') {
+           setError(err.message.includes('Senza accesso') ? err.message : `Errore Galleria: ${err.message}`);
+        }
+      }
+    } else {
+      fileInputRef.current?.click();
+    }
+  };
+
+  const handleWebPhotoCapture = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      processSelectedFiles(Array.from(e.target.files));
     }
   };
 
   const executeCancelProcess = async () => {
     setIsCancelModalOpen(false); 
     
-    if (mediaId) {
-      try {
-        await fetch(`${import.meta.env.VITE_API_URL}/media/images/${mediaId}`, {
+    photos.forEach(p => {
+      if (p.mediaId) {
+        fetch(`${import.meta.env.VITE_API_URL}/media/images/${p.mediaId}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
-        });
-      } catch (e) { console.error("Errore pulizia file:", e); }
-    }
+        }).catch(e => console.error("Errore pulizia file:", e));
+      }
+    });
     
     setStep(1);
     setLocation(null);
-    setPhotoFile(null);
-    setPhotoPreview(null);
-    setMediaId(null);
+    setPhotos([]);
     setAiSuggestions(null);
     setMetadata({});
     setMatchedCampusId(null);
@@ -183,7 +270,31 @@ const CreateAsset: React.FC = () => {
     }
   };
 
+  const closeSuccessModal = () => {
+    setIsSuccessModalOpen(false);
+    setStep(1);
+    setLocation(null);
+    setPhotos([]);
+    setAiSuggestions(null);
+    setMetadata({});
+    setMatchedCampusId(null);
+
+    if (!isOperator) {
+      setSelectedCategory('');
+      setSelectedCategoryObj(null);
+    }
+  };
+
   const handleNextStep1 = () => {
+    if (!location) {
+      setError("La posizione GPS è obbligatoria per il censimento.");
+      return;
+    }
+    if (photos.length === 0) {
+      setError("Senza l'accesso alla fotocamera/galleria il censimento è limitato. Inserisci almeno una foto.");
+      return;
+    }
+
     if (isOperator && selectedCategoryObj) {
       triggerAIAnalysis();
     } else {
@@ -192,16 +303,18 @@ const CreateAsset: React.FC = () => {
   };
 
   const triggerAIAnalysis = async () => {
-    if (!selectedCategory || !photoFile) return;
+    if (!selectedCategory || photos.length === 0) return;
     
     setError(null);
-    let currentMediaId = mediaId;
+    setLoading('Upload in corso...');
 
     try {
-      if (!currentMediaId) {
-        setLoading('Upload in corso...');
+      const photosToUpload = photos.filter(p => !p.mediaId);
+      let updatedPhotos = [...photos];
+
+      if (photosToUpload.length > 0) {
         const formData = new FormData();
-        formData.append('images', photoFile);
+        photosToUpload.forEach(p => formData.append('images', p.file));
 
         const uploadRes = await fetch(`${import.meta.env.VITE_API_URL}/media/images/upload`, {
           method: 'POST',
@@ -214,24 +327,59 @@ const CreateAsset: React.FC = () => {
           throw new Error(uploadData.errors?.[0]?.error || "Errore durante l'upload su MinIO.");
         }
 
-        currentMediaId = uploadData.uploaded[0].media_id;
-        setMediaId(currentMediaId);
+        let uploadIdx = 0;
+        updatedPhotos = updatedPhotos.map(p => {
+          if (!p.mediaId && uploadData.uploaded[uploadIdx]) {
+            const newId = uploadData.uploaded[uploadIdx].media_id;
+            uploadIdx++;
+            return { ...p, mediaId: newId };
+          }
+          return p;
+        });
+        setPhotos(updatedPhotos);
       }
 
       setLoading('Analisi Computer Vision in corso...');
-      const analyzeRes = await fetch(`${import.meta.env.VITE_API_URL}/media/images/${currentMediaId}/analyze`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+      const allMediaIds = updatedPhotos.map(p => p.mediaId).filter(Boolean) as string[];
+      
+      const analyzePromises = allMediaIds.map(id => 
+        fetch(`${import.meta.env.VITE_API_URL}/media/images/${id}/analyze`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.json())
+      );
+
+      const analyzeResults = await Promise.all(analyzePromises);
+
+      let bestSuggestion: any = null;
+      const aggregatedTags = new Set<string>();
+
+      analyzeResults.forEach(data => {
+        if (data.status === "success" || data.status === "degraded") {
+          const sug = data.suggestions;
+          if (sug) {
+            if (sug.tags) sug.tags.forEach((t: string) => aggregatedTags.add(t));
+            if (!bestSuggestion || (sug.confidence_score > bestSuggestion.confidence_score)) {
+              bestSuggestion = sug;
+            }
+          }
+        }
       });
 
-      const analyzeData = await analyzeRes.json();
+      if (bestSuggestion && selectedCategoryObj) {
+        setAiSuggestions({
+          suggested_title: bestSuggestion.suggested_title,
+          confidence_score: bestSuggestion.confidence_score,
+          tags: Array.from(aggregatedTags)
+        });
 
-      if (analyzeData.status === "success" || analyzeData.status === "degraded") {
-        setAiSuggestions(analyzeData.suggestions);
-        if (analyzeData.suggestions?.suggested_title) {
+        // Modifica: Cerca solo tra gli attributi stringa ATTIVI
+        const primaryTextAttr = selectedCategoryObj.attributes.find(attr => attr.type === 'string' && attr.status !== 'unavailable');
+
+        if (primaryTextAttr) {
           setMetadata(prev => ({ 
             ...prev, 
-            tipologia: prev.tipologia || analyzeData.suggestions.suggested_title 
+            [primaryTextAttr.name]: prev[primaryTextAttr.name] || bestSuggestion.suggested_title 
           }));
         }
       }
@@ -253,10 +401,12 @@ const CreateAsset: React.FC = () => {
     setError(null);
     
     try {
+      const finalMediaIds = photos.map(p => p.mediaId).filter(Boolean);
       const payload = {
         category_id: selectedCategory,
         campus_id: matchedCampusId,
-        media_id: mediaId, 
+        media_ids: finalMediaIds, 
+        media_id: finalMediaIds[0] || null, 
         geometry: { type: 'Point', coordinates: [location?.lng, location?.lat] },
         metadata: metadata
       };
@@ -275,21 +425,8 @@ const CreateAsset: React.FC = () => {
         throw new Error(errorData.error || 'Errore durante il salvataggio sul server');
       }
 
-      alert('Asset e Media salvati con successo in Database e Storage!');
+      setIsSuccessModalOpen(true);
       
-      setStep(1);
-      setLocation(null);
-      setPhotoFile(null);
-      setPhotoPreview(null);
-      setMediaId(null);
-      setAiSuggestions(null);
-      setMetadata({});
-      setMatchedCampusId(null);
-
-      if (!isOperator) {
-        setSelectedCategory('');
-        setSelectedCategoryObj(null);
-      }
     } catch (err: any) {
       setError(err.message || 'Errore imprevisto durante il salvataggio.');
     } finally {
@@ -381,34 +518,85 @@ const CreateAsset: React.FC = () => {
                   <label className="mb-1.5 block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
                     {isOperator ? "2. Foto dell'Asset" : "2. Foto dell'Asset"}
                   </label>
-                  <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handlePhotoCapture} className="hidden" />
+                  <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleWebPhotoCapture} className="hidden" />
                   
-                  {photoPreview ? (
-                    <div className="mt-1 relative group">
-                      <img src={photoPreview} alt="Anteprima" className="w-full h-36 object-cover rounded-lg border border-slate-200 shadow-sm dark:border-slate-700" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
-                        <button onClick={() => fileInputRef.current?.click()} className="rounded-lg bg-white px-4 py-1.5 text-sm font-bold text-slate-800 shadow-sm hover:bg-slate-100 transition-colors">
-                          Scatta un'altra foto
-                        </button>
+                  {photos.length > 0 ? (
+                    <div className="space-y-3 mt-1">
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                        {photos.map((p, index) => (
+                          <div key={index} className="relative group aspect-square rounded-lg border border-slate-200 overflow-hidden shadow-sm dark:border-slate-700">
+                            <img src={p.preview} alt={`Foto ${index + 1}`} className="w-full h-full object-cover" />
+                            <button 
+                              onClick={() => removePhoto(index)}
+                              className="absolute top-1.5 right-1.5 flex items-center justify-center w-7 h-7 bg-rose-500/90 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-600 shadow-sm"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"></path></svg>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        {Capacitor.isNativePlatform() ? (
+                          <>
+                            <button onClick={takePhoto} className="flex-1 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors">
+                              📷 Fotocamera
+                            </button>
+                            <button onClick={pickFromGallery} className="flex-1 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors">
+                              🖼️ Galleria
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => fileInputRef.current?.click()} className="flex-1 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 rounded-lg shadow-sm hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-700 transition-colors">
+                            📷 Aggiungi Foto
+                          </button>
+                        )}
                       </div>
                     </div>
                   ) : (
-                    <button 
-                      onClick={() => fileInputRef.current?.click()} 
-                      className="flex flex-col w-full items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 hover:bg-slate-100 hover:border-slate-400 transition-colors dark:bg-slate-800 dark:border-slate-600 dark:hover:border-slate-500 dark:hover:bg-slate-700"
-                    >
-                      <svg className="h-8 w-8 text-slate-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Apri Fotocamera</span>
-                    </button>
+                    <div className={Capacitor.isNativePlatform() ? "grid grid-cols-2 gap-2" : "grid grid-cols-1 gap-2"}>
+                      {Capacitor.isNativePlatform() ? (
+                        <>
+                          <button 
+                            onClick={takePhoto} 
+                            className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 hover:bg-slate-100 hover:border-slate-400 transition-colors dark:bg-slate-800 dark:border-slate-600 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                          >
+                            <svg className="h-7 w-7 text-slate-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Fotocamera</span>
+                          </button>
+
+                          <button 
+                            onClick={pickFromGallery} 
+                            className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 hover:bg-slate-100 hover:border-slate-400 transition-colors dark:bg-slate-800 dark:border-slate-600 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                          >
+                            <svg className="h-7 w-7 text-slate-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Scegli Galleria</span>
+                          </button>
+                        </>
+                      ) : (
+                        <button 
+                          onClick={() => fileInputRef.current?.click()} 
+                          className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-5 hover:bg-slate-100 hover:border-slate-400 transition-colors dark:bg-slate-800 dark:border-slate-600 dark:hover:border-slate-500 dark:hover:bg-slate-700"
+                        >
+                          <svg className="h-7 w-7 text-slate-400 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Carica Immagini (PC/Web)</span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-700">
                   <button 
-                    disabled={!location || !photoFile || (isOperator && !selectedCategoryObj)} 
+                    disabled={!location || photos.length === 0 || (isOperator && !selectedCategoryObj)} 
                     onClick={handleNextStep1} 
                     className="flex w-full justify-center items-center rounded-lg bg-blue-600 p-2 text-sm font-bold text-white shadow-sm transition-all hover:bg-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
@@ -418,7 +606,7 @@ const CreateAsset: React.FC = () => {
                           <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                           Elaborazione in corso...
                         </span>
-                      ) : 'Carica Immagine e Analizza'
+                      ) : 'Carica Immagini e Analizza'
                     ) : 'Avanti'}
                   </button>
                 </div>
@@ -462,7 +650,7 @@ const CreateAsset: React.FC = () => {
                         <svg className="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                         {loading}
                       </span>
-                    ) : 'Carica Immagine e Analizza'}
+                    ) : 'Carica Immagini e Analizza'}
                   </button>
                 </div>
               </div>
@@ -478,11 +666,11 @@ const CreateAsset: React.FC = () => {
                       Analisi Cloud Vision
                     </h5>
                     <p className="text-xs text-slate-700 dark:text-slate-300 mb-0.5">
-                      <strong className="font-semibold text-slate-900 dark:text-white">Rilevamento primario:</strong> {aiSuggestions.suggested_title} 
+                      <strong className="font-semibold text-slate-900 dark:text-white">Miglior Rilevamento:</strong> {aiSuggestions.suggested_title} 
                       <span className="text-[10px] text-slate-500 ml-1.5 font-medium">(Affidabilità: {(aiSuggestions.confidence_score * 100).toFixed(0)}%)</span>
                     </p>
                     <p className="text-xs text-slate-700 dark:text-slate-300">
-                      <strong className="font-semibold text-slate-900 dark:text-white">Tag estratti:</strong> {aiSuggestions.tags.join(', ')}
+                      <strong className="font-semibold text-slate-900 dark:text-white">Tag Combinati:</strong> {aiSuggestions.tags.join(', ')}
                     </p>
                   </div>
                 )}
@@ -495,29 +683,60 @@ const CreateAsset: React.FC = () => {
                 </div>
 
                 <div className="space-y-3">
-                  {selectedCategoryObj?.attributes.map((attr) => (
+                  {/* MODIFICA: Filtriamo via gli attributi deprecati (unavailable) prima del map */}
+                  {selectedCategoryObj?.attributes
+                    .filter(attr => attr.status !== 'unavailable')
+                    .map((attr) => (
                     <div key={attr.name}>
                       <label className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300 capitalize">
                         {attr.name.replace('_', ' ')} {attr.required && <span className="text-rose-500">*</span>}
                       </label>
                       
-                      {attr.type === 'enum' ? (
-                        <select 
-                          value={metadata[attr.name] || ''} 
-                          onChange={(e) => handleMetadataChange(attr.name, e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
-                        >
-                          <option value="">Seleziona...</option>
-                          {attr.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                        </select>
-                      ) : (
-                        <input 
-                          type={attr.type === 'number' ? 'number' : 'text'}
-                          value={metadata[attr.name] || ''}
-                          onChange={(e) => handleMetadataChange(attr.name, attr.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
-                          className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
-                        />
-                      )}
+                      {(() => {
+                        if (attr.type === 'enum') {
+                          return (
+                            <select 
+                              value={metadata[attr.name] || ''} 
+                              onChange={(e) => handleMetadataChange(attr.name, e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                            >
+                              <option value="">Seleziona...</option>
+                              {attr.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                          );
+                        }
+                        if (attr.type === 'boolean') {
+                          return (
+                            <select 
+                              value={metadata[attr.name] !== undefined ? String(metadata[attr.name]) : ''} 
+                              onChange={(e) => handleMetadataChange(attr.name, e.target.value === 'true')}
+                              className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                            >
+                              <option value="">Seleziona...</option>
+                              <option value="true">Vero (Sì)</option>
+                              <option value="false">Falso (No)</option>
+                            </select>
+                          );
+                        }
+                        if (attr.type === 'date') {
+                          return (
+                            <input 
+                              type="date"
+                              value={metadata[attr.name] || ''}
+                              onChange={(e) => handleMetadataChange(attr.name, e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                            />
+                          );
+                        }
+                        return (
+                          <input 
+                            type={attr.type === 'number' ? 'number' : 'text'}
+                            value={metadata[attr.name] || ''}
+                            onChange={(e) => handleMetadataChange(attr.name, attr.type === 'number' ? parseFloat(e.target.value) : e.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                          />
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -582,6 +801,32 @@ const CreateAsset: React.FC = () => {
         </div>,
         document.body
       )}
+
+      {isSuccessModalOpen && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-sm rounded-xl bg-white shadow-2xl dark:bg-slate-800 border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="p-6 text-center">
+              <svg className="mx-auto mb-4 w-16 h-16 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <h3 className="mb-2 text-xl font-bold text-slate-800 dark:text-white">Censimento Completato!</h3>
+              <p className="mb-6 text-sm text-slate-500 dark:text-slate-400">
+                L'asset e i relativi contenuti multimediali sono stati salvati con successo.
+              </p>
+              <div className="flex justify-center">
+                <button 
+                  onClick={closeSuccessModal} 
+                  className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-all hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                >
+                  Nuovo Censimento
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
     </>
   );
 };

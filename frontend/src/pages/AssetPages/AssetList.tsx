@@ -15,7 +15,6 @@ interface CategoryAttribute {
 interface Category {
   _id: string;
   name: string;
-  icon?: string;
   attributes: CategoryAttribute[];
 }
 
@@ -110,7 +109,7 @@ export default function AssetList() {
     fetchStaticData();
   }, [token]);
 
-  // Caricamento Assets in base ai Filtri (Differenziato per Ruolo) 
+  // Caricamento Assets in base ai Filtri
   const fetchAssets = async (page: number) => {
     if (!token) return;
     try {
@@ -118,7 +117,7 @@ export default function AssetList() {
       
       const params = new URLSearchParams();
       params.append('page', page.toString());
-      params.append('limit', '50'); // Dimensione predefinita per l'interfaccia
+      params.append('limit', '50');
       
       if (isAdmin) {
         if (selectedCampusesAdmin.length > 0) {
@@ -148,7 +147,6 @@ export default function AssetList() {
         const assetData = await assetRes.json();
         let fetchedAssets = assetData.assets || [];
 
-        // Filtro di sicurezza aggiuntivo lato frontend per operatori
         if (!isAdmin && user?.category_id) {
           fetchedAssets = fetchedAssets.filter((a: Asset) => a.category_id === user.category_id);
         }
@@ -165,22 +163,18 @@ export default function AssetList() {
     }
   };
 
-  // Resetta la pagina a 1 quando cambiano i filtri
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedCampusesOp, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters]);
 
-  // Esegue la fetch quando cambiano token, pagina corrente o configurazione ruoli
   useEffect(() => {
     fetchAssets(currentPage);
   }, [token, currentPage, selectedCampusesOp, selectedCampusesAdmin, selectedCategoriesAdmin, dynamicFilters, user, isAdmin]);
 
-  // Gestione Reset Filtri Dinamici al cambio categoria
   useEffect(() => {
     setDynamicFilters({});
   }, [selectedCategoriesAdmin]);
 
-  // Gestione Navigazione da altre pagine (es. Mappa)
   useEffect(() => {
     if (location.state?.editCampusId) {
       if (isAdmin) {
@@ -195,10 +189,15 @@ export default function AssetList() {
     }
   }, [location.state, isAdmin]);
 
+  // LOGICA MODIFICATA: Ricezione dell'asset intero passato dalla mappa
   useEffect(() => {
     const editAssetId = location.state?.editAssetId;
-    if (editAssetId && assets.length > 0) {
-      const assetToEdit = assets.find(a => a._id === editAssetId);
+    const fullAsset = location.state?.fullAsset; // Asset completo recuperato dallo state
+
+    if (editAssetId) {
+      // Priorità all'asset intero passato dalla mappa, altrimenti cerca nella pagina corrente
+      const assetToEdit = fullAsset || assets.find(a => a._id === editAssetId);
+      
       if (assetToEdit) {
         openEditModal(assetToEdit);
         navigate(location.pathname, { replace: true, state: {} });
@@ -283,9 +282,6 @@ export default function AssetList() {
     return range;
   };
 
-  // =================================================================
-  // ESPORTAZIONE CSV (Solo Admin)
-  // =================================================================
   const handleExportCSV = async () => {
     if (assets.length === 0) {
       showNotification('error', "Nessun asset trovato. Regola i filtri prima di esportare.");
@@ -418,9 +414,13 @@ export default function AssetList() {
     }
   };
 
-  const activeCategoriesForFilters = isAdmin 
-    ? categories.filter(c => selectedCategoriesAdmin.includes(c._id))
-    : categories.filter(c => c._id === user?.category_id);
+  const activeCategoryIdForFilters = isAdmin 
+    ? (selectedCategoriesAdmin.length === 1 ? selectedCategoriesAdmin[0] : null)
+    : user?.category_id;
+
+  const filterableAttributes = activeCategoryIdForFilters 
+    ? categories.find(c => c._id === activeCategoryIdForFilters)?.attributes.filter(attr => attr.filterable && attr.status !== 'unavailable') || []
+    : [];
 
   const activeCategory = selectedAsset ? categories.find(c => c._id === selectedAsset.category_id) : null;
   const hasChanges = selectedAsset ? (
@@ -465,7 +465,6 @@ export default function AssetList() {
       <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
         
         {isAdmin ? (
-          // VISUALE AMMINISTRATORE (Doppia Tendina Multipla)
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="relative">
               <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -558,7 +557,6 @@ export default function AssetList() {
             </div>
           </div>
         ) : (
-          // VISUALE OPERATORE (Singola Tendina Multipla Custom)
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             <div className="relative">
               <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
@@ -607,71 +605,44 @@ export default function AssetList() {
           </div>
         )}
 
-        {/* FILTRI DINAMICI COMPATTI PER CATEGORIA */}
-        {activeCategoriesForFilters.length > 0 && activeCategoriesForFilters.some(cat => cat.attributes?.some((attr: any) => attr.filterable && attr.status !== 'unavailable')) && (
-          <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-col gap-2.5">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Filtri Specifici per Categoria
-            </span>
-            
-            <div className="flex flex-wrap items-center gap-4">
-              {activeCategoriesForFilters.map(cat => {
-                const catAttributes = cat.attributes?.filter((attr: any) => attr.filterable && attr.status !== 'unavailable') || [];
-                if (catAttributes.length === 0) return null;
-
-                return (
-                  <div key={cat._id} className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
-                    {/* Badge Categoria */}
-                    <div className="flex items-center gap-1.5 pr-2 border-r border-slate-200 dark:border-slate-700">
-                      <span className="text-sm">{cat.icon || '📌'}</span>
-                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">
-                        {cat.name}
-                      </span>
-                    </div>
-
-                    {/* Controlli compatti */}
-                    <div className="flex flex-wrap items-center gap-3">
-                      {catAttributes.map((attr: any) => (
-                        <div key={attr.name} className="flex items-center gap-1.5">
-                          <label className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 capitalize whitespace-nowrap">
-                            {attr.name.replace('_', ' ')}:
-                          </label>
-                          
-                          {attr.type === 'enum' ? (
-                            <select 
-                              value={dynamicFilters[attr.name] || ''}
-                              onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
-                              className="rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
-                            >
-                              <option value="">Tutti</option>
-                              {attr.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-                            </select>
-                          ) : attr.type === 'boolean' ? (
-                             <select 
-                              value={dynamicFilters[attr.name] || ''}
-                              onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
-                              className="rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
-                            >
-                              <option value="">Tutti</option>
-                              <option value="true">Sì</option>
-                              <option value="false">No</option>
-                            </select>
-                          ) : (
-                            <input 
-                              type={attr.type === 'number' ? 'number' : 'text'}
-                              value={dynamicFilters[attr.name] || ''}
-                              onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
-                              placeholder="Cerca..."
-                              className="w-28 rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {filterableAttributes.length > 0 && (
+          <div className="mt-5 pt-5 border-t border-slate-100 dark:border-slate-700 flex flex-wrap items-end gap-4">
+            {filterableAttributes.map(attr => (
+              <div key={attr.name} className="w-full sm:w-[200px]">
+                <label className="mb-1.5 block text-[11px] font-bold text-slate-500 dark:text-slate-400 capitalize tracking-wide truncate">
+                  {attr.name.replace('_', ' ')}
+                </label>
+                
+                {attr.type === 'enum' ? (
+                  <select 
+                    value={dynamicFilters[attr.name] || ''}
+                    onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                  >
+                    <option value="">Tutti</option>
+                    {attr.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                  </select>
+                ) : attr.type === 'boolean' ? (
+                   <select 
+                    value={dynamicFilters[attr.name] || ''}
+                    onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                    className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                  >
+                    <option value="">Tutti</option>
+                    <option value="true">Sì</option>
+                    <option value="false">No</option>
+                  </select>
+                ) : (
+                  <input 
+                    type={attr.type === 'number' ? 'number' : 'text'}
+                    value={dynamicFilters[attr.name] || ''}
+                    onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                    placeholder="Cerca..."
+                    className="w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-1 focus:ring-blue-500 dark:border-slate-600 dark:text-white dark:bg-slate-800"
+                  />
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -728,7 +699,6 @@ export default function AssetList() {
         </div>
       </div>
 
-      {/* CONTROLLI PAGINAZIONE */}
       {!loading && totalPages > 1 && (
         <div className="mt-6 flex flex-col items-center justify-between gap-4 sm:flex-row bg-white p-4 rounded-xl shadow-sm border border-slate-200 dark:bg-slate-800 dark:border-slate-700">
           <span className="text-sm font-medium text-slate-500 dark:text-slate-400">
