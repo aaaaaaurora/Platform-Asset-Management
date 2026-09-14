@@ -219,7 +219,7 @@ const CreateAsset: React.FC = () => {
           limit: 0 
         });
         
-        const fetchedFiles = await Promise.all(gallery.photos.map(async (image, idx) => {
+        const fetchedFiles = await Promise.all(gallery.photos.map(async (image: any, idx: number) => {
           if (image.webPath) {
             const response = await fetch(image.webPath);
             const blob = await response.blob();
