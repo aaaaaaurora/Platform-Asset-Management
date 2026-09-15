@@ -103,9 +103,9 @@ def publish_audit(action, entity_id, actor_id, campus_id, payload_details):
         
     mq_manager.publish_event('system_events', action, str(actor_id), 'warning-service', event_data)
     
-# ==============================================
+# ==========================================
 # CONSUMER ASINCRONO PER CACHE ASSET E WARNINGS
-# ==============================================
+# ==========================================
 def process_asset_events(ch, method, properties, body):
     """Callback per elaborare gli eventi dell'Asset Service e aggiornare la cache locale."""
     with app.app_context():
@@ -117,28 +117,26 @@ def process_asset_events(ch, method, properties, body):
             if action in ["ASSET_CREATED", "ASSET_UPDATED"]:
                 asset_id = payload.get("asset_id")
                 campus_id = payload.get("campus_id")
-                category_id = payload.get("category_id") # AGGIUNTO
+                category_id = payload.get("category_id")
                 
                 campus_name = payload.get("campus_name")
                 asset_name = payload.get("asset_name")
                 
-                if asset_id and campus_id and category_id: # AGGIORNATO
+                if asset_id and campus_id and category_id:
                     campus_uuid = uuid.UUID(campus_id)
                     asset = db.session.get(LocalAssetCache, asset_id)
                     
                     if not asset:
-                        # Se non esiste, lo creiamo memorizzando anche i nomi e la categoria
                         asset = LocalAssetCache(
                             asset_id=asset_id, 
-                            category_id=category_id, # AGGIUNTO
+                            category_id=category_id,
                             campus_id=campus_uuid,
                             campus_name=campus_name,
                             asset_name=asset_name
                         )
                         db.session.add(asset)
                     else:
-                        # Se esiste, aggiorniamo tutto (in caso di ridenominazione o spostamento)
-                        asset.category_id = category_id # AGGIUNTO
+                        asset.category_id = category_id
                         asset.campus_id = campus_uuid
                         asset.campus_name = campus_name
                         asset.asset_name = asset_name
@@ -150,49 +148,49 @@ def process_asset_events(ch, method, properties, body):
                 if asset_id:
                     # 1. Recuperiamo le informazioni sull'asset prima di eliminarlo dalla cache locale
                     asset = db.session.get(LocalAssetCache, asset_id)
-                    campus_id_str = str(asset.campus_id) if asset else None
                     campus_name = asset.campus_name if asset else None
                     category_id = asset.category_id if asset else None
                     asset_name = asset.asset_name if asset else None
 
-                    # 2. <-- MODIFICA: Recuperiamo i ticket pendenti
-                    pending_warnings = db.session.query(Warning).filter_by(asset_id=asset_id, status=WarningStatus.aperta).all()
+                    # 2. Recuperiamo i ticket pendenti collegati a questo asset
+                    pending_warnings = db.session.query(Warning.id, Warning.campus_id).filter_by(asset_id=asset_id, status=WarningStatus.aperta).all()
                     
                     if pending_warnings:
-                        # Eseguiamo un UPDATE diretto sul database per garantire il cambio di stato
-                        db.session.query(Warning).filter_by(asset_id=asset_id, status=WarningStatus.aperta).update({"status": WarningStatus.annullata})
+                        # Aggiornamento diretto SQL per marcare le segnalazioni come annullate
+                        update_sql = text("UPDATE warning SET status = 'annullata', updated_at = NOW() WHERE asset_id = :asset_id AND status = 'aperta'")
+                        db.session.execute(update_sql, {'asset_id': asset_id})
                         
-                        for w in pending_warnings:
+                        for w_id, w_campus_id in pending_warnings:
                             # Aggiungiamo un intervento di sistema per tracciabilità
                             auto_maintenance = MaintenanceIntervention(
                                 asset_id=asset_id,
-                                campus_id=w.campus_id,
+                                campus_id=w_campus_id,
                                 operator_id='system', 
-                                warning_id=w.id,
+                                warning_id=w_id,
                                 intervention_type=MaintenanceType.correttiva,
-                                technical_note="Segnalazione annullata automaticamente: l'asset associato è stato eliminato dalla mappa."
+                                technical_note="Segnalazione annullata automaticamente: l'asset associato è stato eliminato."
                             )
                             db.session.add(auto_maintenance)
                             db.session.flush()
 
-                            # Informiamo gli altri servizi e la dashboard dell'annullamento
-                            publish_audit(
-                                action="CANCEL_WARNING",
-                                entity_id=str(w.id),
-                                actor_id='system',
-                                campus_id=str(w.campus_id),
-                                payload_details={
-                                    "asset_id": asset_id,
-                                    "status_precedente": "aperta",
-                                    "status_nuovo": "annullata",
-                                    "maintenance_id": str(auto_maintenance.id),
-                                    "campus_name": campus_name, 
-                                    "category_id": str(category_id),
-                                    "asset_name": asset_name   
-                                }
-                            )
+                            # 3. PUBBLICAZIONE DIRETTA 
+                            event_data = {
+                                "azione": "CANCEL_WARNING",
+                                "entity_id": str(w_id),
+                                "autore_id": "system",
+                                "campus_id": str(w_campus_id),
+                                "asset_id": asset_id,
+                                "status_precedente": "aperta",
+                                "status_nuovo": "annullata",
+                                "maintenance_id": str(auto_maintenance.id),
+                                "campus_name": campus_name, 
+                                "category_id": str(category_id),
+                                "asset_name": asset_name,
+                                "email": "System Auto"
+                            }
+                            mq_manager.publish_event('system_events', 'CANCEL_WARNING', 'system', 'warning-service', event_data)
 
-                    # 3. Eliminiamo l'asset dalla cache locale
+                    # 4. Eliminiamo l'asset dalla cache locale
                     if asset:
                         db.session.delete(asset)
                     
@@ -203,14 +201,13 @@ def process_asset_events(ch, method, properties, body):
                 if campus_id:
                     campus_uuid = uuid.UUID(campus_id)
                     
-                    # MODIFICA: Stesso approccio bulk update per il campus
-                    db.session.query(Warning).filter_by(campus_id=campus_uuid, status=WarningStatus.aperta).update({"status": WarningStatus.annullata})
+                    update_sql = text("UPDATE warning SET status = 'annullata', updated_at = NOW() WHERE campus_id = :campus_id AND status = 'aperta'")
+                    db.session.execute(update_sql, {'campus_id': campus_uuid})
                     
-                    # 2. Elimina dalla cache locale tutti gli asset di quel campus
                     db.session.query(LocalAssetCache).filter_by(campus_id=campus_uuid).delete()
                     db.session.commit()
                     
-            # Ack manuale se auto_ack è impostato a False nel manager
+            # Ack manuale 
             if ch.is_open and not getattr(ch, 'auto_ack', True):
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 
