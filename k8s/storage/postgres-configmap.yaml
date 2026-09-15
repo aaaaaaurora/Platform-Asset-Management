@@ -98,7 +98,7 @@ data:
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
     -- ENUM per lo stato della segnalazione e per il tipo di intervento
-    CREATE TYPE warning_status AS ENUM ('aperta', 'chiusa');
+    CREATE TYPE warning_status AS ENUM ('aperta', 'chiusa', 'annullata');
     CREATE TYPE maintenance_type AS ENUM ('preventiva', 'correttiva');
 
     -- Funzione per aggiornamento timestamp (preservata)
