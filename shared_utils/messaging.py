@@ -30,7 +30,7 @@ class RabbitMQManager:
         """
         Pubblica un evento standardizzato su un Exchange RabbitMQ.
         """
-        # Estrazione intelligente dell'entity_id dai dati extra per normalizzarlo per il Log Service 
+        # Estrazione intelligente dell'entity_id dai dati extra per normalizzarlo per il Log Service  
         entity_id = None
         if extra_data and isinstance(extra_data, dict):
             entity_id = (

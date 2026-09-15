@@ -58,7 +58,7 @@ export default function CampusListPage() {
   const executeDelete = async () => {
     if (!campusToDelete) return;
     
-    // Attiviamo lo spinner e blocchiamo i click multipli
+    // Attiviamo lo spinner e blocchiamo i click multipli 
     setIsDeleting(true);
 
     try {
