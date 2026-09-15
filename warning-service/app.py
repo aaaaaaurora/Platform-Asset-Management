@@ -30,6 +30,7 @@ mq_manager = RabbitMQManager(rabbitmq_url=RABBITMQ_URL)
 class WarningStatus(enum.Enum):
     aperta = 'aperta'
     chiusa = 'chiusa'
+    annullata = 'annullata'
 
 class MaintenanceType(enum.Enum):
     preventiva = 'preventiva'
@@ -52,7 +53,7 @@ class MaintenanceIntervention(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id = db.Column(db.String(24), nullable=False)
     campus_id = db.Column(UUID(as_uuid=True), nullable=False)
-    operator_id = db.Column(UUID(as_uuid=True), nullable=False)
+    operator_id = db.Column(db.String(36), nullable=False) # Permettiamo sia UUID operatore che identificativi come 'system'
     warning_id = db.Column(UUID(as_uuid=True), db.ForeignKey('warning.id'), nullable=True)
     intervention_type = db.Column(db.Enum(MaintenanceType), nullable=False)
     technical_note = db.Column(db.Text, nullable=False)
@@ -94,13 +95,16 @@ def publish_audit(action, entity_id, actor_id, campus_id, payload_details):
     if payload_details:
         event_data.update(payload_details)
     
+    # <-- Usa la mail se è una chiamata API. Usa 'System' se è chiamato dal consumer background.
     if auth_ctx.get('email'):
         event_data['email'] = auth_ctx.get('email')
+    elif str(actor_id) == 'system':
+        event_data['email'] = 'Sistema Automatico'
         
     mq_manager.publish_event('system_events', action, str(actor_id), 'warning-service', event_data)
     
 # ==========================================
-# CONSUMER ASINCRONO PER CACHE ASSET
+# CONSUMER ASINCRONO PER CACHE ASSET E WARNINGS
 # ==========================================
 def process_asset_events(ch, method, properties, body):
     """Callback per elaborare gli eventi dell'Asset Service e aggiornare la cache locale."""
@@ -144,16 +148,66 @@ def process_asset_events(ch, method, properties, body):
             elif action == "ASSET_DELETED":
                 asset_id = payload.get("asset_id")
                 if asset_id:
+                    # 1. Recuperiamo le informazioni sull'asset prima di eliminarlo dalla cache locale
                     asset = db.session.get(LocalAssetCache, asset_id)
+                    campus_id_str = str(asset.campus_id) if asset else None
+                    campus_name = asset.campus_name if asset else None
+                    category_id = asset.category_id if asset else None
+                    asset_name = asset.asset_name if asset else None
+
+                    # 2. <-- NUOVA LOGICA: Chiusura automatica di tutte le segnalazioni pendenti per l'asset eliminato
+                    pending_warnings = db.session.query(Warning).filter_by(asset_id=asset_id, status=WarningStatus.aperta).all()
+                    
+                    for w in pending_warnings:
+                        w.status = WarningStatus.annullata
+                        
+                        # Aggiungiamo un intervento di sistema per tracciabilità
+                        auto_maintenance = MaintenanceIntervention(
+                            asset_id=asset_id,
+                            campus_id=w.campus_id,
+                            operator_id='system', 
+                            warning_id=w.id,
+                            intervention_type=MaintenanceType.correttiva,
+                            technical_note="Segnalazione annullata automaticamente: l'asset associato è stato eliminato dalla mappa."
+                        )
+                        db.session.add(auto_maintenance)
+                        db.session.flush()
+
+                        # Informiamo gli altri servizi e la dashboard dell'annullamento
+                        publish_audit(
+                            action="RESOLVE_WARNING",
+                            entity_id=str(w.id),
+                            actor_id='system',
+                            campus_id=str(w.campus_id),
+                            payload_details={
+                                "asset_id": asset_id,
+                                "status_precedente": "aperta",
+                                "status_nuovo": "annullata",
+                                "maintenance_id": str(auto_maintenance.id),
+                                "campus_name": campus_name, 
+                                "category_id": str(category_id),
+                                "asset_name": asset_name   
+                            }
+                        )
+
+                    # 3. Eliminiamo l'asset dalla cache locale
                     if asset:
                         db.session.delete(asset)
-                        db.session.commit()
+                    
+                    db.session.commit()
             
             elif action == "CAMPUS_DELETED":
                 campus_id = payload.get("campus_id")
                 if campus_id:
                     campus_uuid = uuid.UUID(campus_id)
-                    # Elimina dalla cache locale tutti gli asset di quel campus
+                    
+                    # 1. Annulliamo tutte le segnalazioni aperte pendenti sui campus eliminati
+                    # Poiché le segnalazioni richiedono un intervento sul campo, la distruzione del campus rende impossibile operare
+                    pending_warnings_campus = db.session.query(Warning).filter_by(campus_id=campus_uuid, status=WarningStatus.aperta).all()
+                    for w in pending_warnings_campus:
+                        w.status = WarningStatus.annullata
+                    
+                    # 2. Elimina dalla cache locale tutti gli asset di quel campus
                     db.session.query(LocalAssetCache).filter_by(campus_id=campus_uuid).delete()
                     db.session.commit()
 
@@ -379,8 +433,8 @@ def resolve_warning(warning_id_str):
         return jsonify({"error": "Non sei autorizzato a operare sugli asset di questo campus"}), 403
 
     # 3. Controllo Stato Logico
-    if warning.status == WarningStatus.chiusa:
-        return jsonify({"error": "La segnalazione è già stata chiusa"}), 400
+    if warning.status == WarningStatus.chiusa or warning.status == WarningStatus.annullata:
+        return jsonify({"error": "La segnalazione è già stata chiusa o annullata"}), 400
 
     # 4. Estrazione Payload
     data = request.get_json()
@@ -406,7 +460,7 @@ def resolve_warning(warning_id_str):
         new_maintenance = MaintenanceIntervention(
             asset_id=warning.asset_id,
             campus_id=warning.campus_id,
-            operator_id=uuid.UUID(user_id),
+            operator_id=user_id,
             warning_id=warning.id,
             intervention_type=MaintenanceType.correttiva, # Correttiva in quanto evasa da una segnalazione
             technical_note=technical_note.strip()
@@ -492,7 +546,6 @@ def create_maintenance():
 
     try:
         campus_uuid = uuid.UUID(campus_id_str)
-        operator_uuid = uuid.UUID(user_id)
     except ValueError:
         return jsonify({"error": "Formato ID non valido"}), 400
 
@@ -500,7 +553,7 @@ def create_maintenance():
     new_maintenance = MaintenanceIntervention(
         asset_id=asset_id_str, 
         campus_id=campus_uuid,
-        operator_id=operator_uuid,
+        operator_id=user_id,
         warning_id=None, # Manutenzione diretta
         intervention_type=m_type_enum,
         technical_note=technical_note.strip()

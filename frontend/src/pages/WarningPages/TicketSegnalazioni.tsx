@@ -342,6 +342,7 @@ export default function TicketSegnalazioni() {
               <option value="">Tutti gli Stati</option>
               <option value="aperta">Solo Aperte</option>
               <option value="chiusa">Solo Chiuse</option>
+              <option value="annullata">Solo Annullate</option>
             </select>
           </div>
         </div>
@@ -387,7 +388,10 @@ export default function TicketSegnalazioni() {
                         <p className="text-xs text-slate-500 mt-1 font-mono">Asset: {ticket.asset_id.substring(0, 8)}...</p>
                       </td>
                       <td className="py-4 px-6 text-center">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wide ${ticket.status === 'aperta' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'}`}>
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wide 
+                          ${ticket.status === 'aperta' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' : 
+                            ticket.status === 'chiusa' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 
+                            'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400 border border-slate-300 dark:border-slate-600'}`}>
                           {ticket.status}
                         </span>
                       </td>
