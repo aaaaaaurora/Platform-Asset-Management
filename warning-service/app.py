@@ -81,16 +81,13 @@ def get_auth_context():
     }
 
 def publish_audit(action, entity_id, actor_id, campus_id, payload_details):
-    """Sfrutta il Manager centralizzato per emettere log asincroni superando il validatore."""
+    """Sfrutta il Manager centralizzato per emettere log asincroni."""
     auth_ctx = get_auth_context()
-    
-    # Se actor_id è "system", usiamo None per non far crashare la validazione UUID del log-service
-    valid_actor_id = str(actor_id) if actor_id and actor_id != 'system' else None
     
     event_data = {
         "azione": action,
         "entity_id": str(entity_id),
-        "autore_id": valid_actor_id,
+        "autore_id": str(actor_id),
         "campus_id": str(campus_id)
     }
     
@@ -99,10 +96,8 @@ def publish_audit(action, entity_id, actor_id, campus_id, payload_details):
     
     if auth_ctx.get('email'):
         event_data['email'] = auth_ctx.get('email')
-    elif str(actor_id) == 'system':
-        event_data['email'] = 'Sistema Automatico'
         
-    mq_manager.publish_event('system_events', action, valid_actor_id, 'warning-service', event_data)
+    mq_manager.publish_event('system_events', action, str(actor_id), 'warning-service', event_data)
     
 # ==========================================
 # CONSUMER ASINCRONO PER CACHE ASSET
@@ -148,7 +143,6 @@ def process_asset_events(ch, method, properties, body):
                 if asset_id:
                     asset = db.session.get(LocalAssetCache, asset_id)
                     
-                    # Estraiamo i dati dall'oggetto ORA, prima che venga compromesso dal commit
                     campus_name_str = asset.campus_name if asset else None
                     category_id_str = str(asset.category_id) if asset else None
                     asset_name_str = asset.asset_name if asset else None
@@ -156,27 +150,29 @@ def process_asset_events(ch, method, properties, body):
                     pending_warnings = db.session.query(Warning).filter_by(asset_id=asset_id, status=WarningStatus.aperta).all()
                     
                     for w in pending_warnings:
-                        # Estraiamo anche i dati del warning prima del commit
+                        # Estrazione preventiva dei dati per evitare DetachedInstanceError post-commit
                         w_id_str = str(w.id)
                         w_campus_id_str = str(w.campus_id)
                         
                         w.status = WarningStatus.annullata
                         db.session.commit()
                         
-                        publish_audit(
-                            action="CANCEL_WARNING",
-                            entity_id=w_id_str,
-                            actor_id="system", 
-                            campus_id=w_campus_id_str,
-                            payload_details={
-                                "asset_id": asset_id,
-                                "status_precedente": "aperta",
-                                "status_nuovo": "annullata",
-                                "campus_name": campus_name_str, 
-                                "category_id": category_id_str,
-                                "asset_name": asset_name_str
-                            }
-                        )
+                        event_data = {
+                            "azione": "CANCEL_WARNING",
+                            "entity_id": w_id_str,
+                            "autore_id": None, 
+                            "campus_id": w_campus_id_str,
+                            "asset_id": asset_id,
+                            "status_precedente": "aperta",
+                            "status_nuovo": "annullata",
+                            "campus_name": campus_name_str, 
+                            "category_id": category_id_str,
+                            "asset_name": asset_name_str,
+                            "email": "System Auto"
+                        }
+                        
+                        # Passiamo None come terzo parametro
+                        mq_manager.publish_event('system_events', 'CANCEL_WARNING', None, 'warning-service', event_data)
 
                     if asset:
                         db.session.delete(asset)
@@ -198,18 +194,18 @@ def process_asset_events(ch, method, properties, body):
                         w.status = WarningStatus.annullata
                         db.session.commit()
                         
-                        publish_audit(
-                            action="CANCEL_WARNING",
-                            entity_id=w_id_str,
-                            actor_id="system",
-                            campus_id=w_campus_id_str,
-                            payload_details={
-                                "asset_id": w_asset_id_str,
-                                "status_precedente": "aperta",
-                                "status_nuovo": "annullata"
-                            }
-                        )
-                        
+                        event_data = {
+                            "azione": "CANCEL_WARNING",
+                            "entity_id": w_id_str,
+                            "autore_id": None, # None fa superare la validazione UUID del log-service
+                            "campus_id": w_campus_id_str,
+                            "asset_id": w_asset_id_str,
+                            "status_precedente": "aperta",
+                            "status_nuovo": "annullata",
+                            "email": "System Auto"
+                        }
+                        mq_manager.publish_event('system_events', 'CANCEL_WARNING', None, 'warning-service', event_data)
+                    
                     db.session.query(LocalAssetCache).filter_by(campus_id=campus_uuid).delete()
                     db.session.commit()
 
