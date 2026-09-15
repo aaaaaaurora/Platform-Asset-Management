@@ -53,7 +53,7 @@ class MaintenanceIntervention(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     asset_id = db.Column(db.String(24), nullable=False)
     campus_id = db.Column(UUID(as_uuid=True), nullable=False)
-    operator_id = db.Column(db.String(36), nullable=False) 
+    operator_id = db.Column(db.String(36), nullable=False) # Accetta la stringa "system" senza problemi
     warning_id = db.Column(UUID(as_uuid=True), db.ForeignKey('warning.id'), nullable=True)
     intervention_type = db.Column(db.Enum(MaintenanceType), nullable=False)
     technical_note = db.Column(db.Text, nullable=False)
@@ -105,7 +105,7 @@ def publish_audit(action, entity_id, actor_id, campus_id, payload_details):
 # CONSUMER ASINCRONO PER CACHE ASSET E WARNINGS
 # ==========================================
 def process_asset_events(ch, method, properties, body):
-    """Callback per elaborare gli eventi dell'Asset Service e aggiornare la cache locale."""
+    """Callback per elaborare gli eventi dell'Asset Service."""
     with app.app_context():
         try:
             payload = json.loads(body.decode('utf-8'))
@@ -143,23 +143,16 @@ def process_asset_events(ch, method, properties, body):
             elif action == "ASSET_DELETED":
                 asset_id = payload.get("asset_id")
                 if asset_id:
-                    # 1. Recupero cache asset locale
-                    asset = db.session.get(LocalAssetCache, asset_id)
-                    campus_name = asset.campus_name if asset else None
-                    category_id = asset.category_id if asset else None
-                    asset_name = asset.asset_name if asset else None
-
-                    # 2. Recupero oggetti ORM interi invece del Raw SQL
+                    # Troviamo eventuali segnalazioni ancora aperte per questo asset
                     pending_warnings = db.session.query(Warning).filter_by(
                         asset_id=asset_id, 
                         status=WarningStatus.aperta
                     ).all()
                     
                     for w in pending_warnings:
-                        # L'uso dell'ORM SQLAlchemy risolve il conflitto col tipo ENUM di Postgres
+                        # 1. Modifica esatta a come avviene in resolve_warning
                         w.status = WarningStatus.annullata
                         
-                        # Storico manutenzione automatica
                         auto_maintenance = MaintenanceIntervention(
                             asset_id=asset_id,
                             campus_id=w.campus_id,
@@ -169,47 +162,55 @@ def process_asset_events(ch, method, properties, body):
                             technical_note="Segnalazione annullata automaticamente: l'asset associato è stato eliminato dal sistema."
                         )
                         db.session.add(auto_maintenance)
-                        db.session.flush() # Forza l'assegnazione dell'ID auto_maintenance
+                        
+                        # 2. COMMIT IMMEDIATO (fondamentale per evitare perdite se fallisce RabbitMQ)
+                        db.session.commit()
 
-                        # 3. Chiamata diretta e sicura come in app_9.py
-                        mq_manager.publish_event(
-                            exchange_name='system_events',
-                            action='CANCEL_WARNING',
-                            actor_id='system',
-                            service_name='warning-service',
-                            extra_data={
-                                "entity_id": str(w.id),
-                                "campus_id": str(w.campus_id),
-                                "asset_id": asset_id,
-                                "status_precedente": "aperta",
-                                "status_nuovo": "annullata",
-                                "maintenance_id": str(auto_maintenance.id),
-                                "campus_name": campus_name, 
-                                "category_id": str(category_id) if category_id else None,
-                                "asset_name": asset_name,
-                                "email": "System Auto"
-                            }
-                        )
+                        # 3. PUBBLICA EVENTO SOLO DOPO IL COMMIT (identico a publish_audit)
+                        event_data = {
+                            "azione": "CANCEL_WARNING",
+                            "entity_id": str(w.id),
+                            "autore_id": "system",
+                            "campus_id": str(w.campus_id),
+                            "asset_id": asset_id,
+                            "status_precedente": "aperta",
+                            "status_nuovo": "annullata",
+                            "maintenance_id": str(auto_maintenance.id),
+                            "email": "System Auto"
+                        }
+                        # Usiamo la stessa firma posizionale usata da publish_audit
+                        mq_manager.publish_event('system_events', 'CANCEL_WARNING', 'system', 'warning-service', event_data)
 
-                    # 4. Elimina la cache locale
+                    # Elimina l'asset dalla cache locale a pulizia conclusa
+                    asset = db.session.get(LocalAssetCache, asset_id)
                     if asset:
                         db.session.delete(asset)
-                    
-                    db.session.commit()
+                        db.session.commit()
             
             elif action == "CAMPUS_DELETED":
                 campus_id = payload.get("campus_id")
                 if campus_id:
                     campus_uuid = uuid.UUID(campus_id)
                     
-                    # Applichiamo la stessa tecnica ORM sicura anche qui
-                    warnings_to_cancel = db.session.query(Warning).filter_by(
+                    pending_warnings = db.session.query(Warning).filter_by(
                         campus_id=campus_uuid, 
                         status=WarningStatus.aperta
                     ).all()
                     
-                    for w in warnings_to_cancel:
+                    for w in pending_warnings:
                         w.status = WarningStatus.annullata
+                        db.session.commit()
+                        
+                        event_data = {
+                            "azione": "CANCEL_WARNING",
+                            "entity_id": str(w.id),
+                            "autore_id": "system",
+                            "campus_id": str(w.campus_id),
+                            "status_precedente": "aperta",
+                            "status_nuovo": "annullata",
+                            "email": "System Auto"
+                        }
+                        mq_manager.publish_event('system_events', 'CANCEL_WARNING', 'system', 'warning-service', event_data)
                     
                     db.session.query(LocalAssetCache).filter_by(campus_id=campus_uuid).delete()
                     db.session.commit()
@@ -222,7 +223,7 @@ def process_asset_events(ch, method, properties, body):
             db.session.rollback()
 
 def start_consumer_thread():
-    """Avvia il consumer asincrono in background utilizzando il RabbitMQManager."""
+    """Avvia il consumer asincrono in background."""
     thread = threading.Thread(
         target=mq_manager.start_consumer, 
         kwargs={
@@ -247,7 +248,6 @@ def health_check():
 # ==========================================
 @app.route('/warnings', methods=['POST'])
 def create_warning():
-    """Creazione di una segnalazione pubblica su un asset esistente."""
     auth_ctx = get_auth_context()
     reporter_id = auth_ctx.get('user_id')
     
@@ -261,7 +261,6 @@ def create_warning():
     asset_id_str = data.get('asset_id')
     description = data.get('descrizione')
 
-    # Validazione input
     if not description or str(description).strip() == "":
         return jsonify({"error": "La descrizione della segnalazione è obbligatoria"}), 400
         
@@ -322,10 +321,6 @@ def create_warning():
 # ==========================================
 @app.route('/warnings', methods=['GET'])
 def get_warnings():
-    """
-    Recupera l'elenco delle segnalazioni. 
-    Applica implicitamente il filtro territoriale in base al ruolo dell'utente.
-    """
     auth_ctx = get_auth_context()
     user_role = auth_ctx.get('role')
     authorized_campus_ids = auth_ctx.get('campus_ids', [])
@@ -386,10 +381,6 @@ def get_warnings():
 # =============================================
 @app.route('/warnings/<warning_id_str>/resolve', methods=['PATCH'])
 def resolve_warning(warning_id_str):
-    """
-    Registra la nota tecnica dell'intervento e chiude formalmente la segnalazione.
-    Genera un record immutabile di manutenzione correlato.
-    """
     auth_ctx = get_auth_context()
     user_role = auth_ctx.get('role')
     user_id = auth_ctx.get('user_id')
@@ -469,10 +460,6 @@ def resolve_warning(warning_id_str):
 # ==========================================
 @app.route('/maintenances', methods=['POST'])
 def create_maintenance():
-    """
-    Registra un'attività di manutenzione preventiva o correttiva su un asset,
-    senza richiedere la preesistenza di una segnalazione pubblica.
-    """
     auth_ctx = get_auth_context()
     user_role = auth_ctx.get('role')
     user_id = auth_ctx.get('user_id')
@@ -557,5 +544,4 @@ def create_maintenance():
 start_consumer_thread()
 
 if __name__ == '__main__':
-    start_consumer_thread()
     app.run(host='0.0.0.0', port=5000)
