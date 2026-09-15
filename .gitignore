@@ -19,3 +19,5 @@ uploads/
 .pytest_cache/
 
 !frontend/.env
+
+node_modules

@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from shared_utils.messaging import RabbitMQManager
 
 # ============================================================================
-# INIZIALIZZAZIONE E CONFIGURAZIONE 
+# INIZIALIZZAZIONE E CONFIGURAZIONE
 # ============================================================================
 app = Flask(__name__)
 
@@ -21,8 +21,10 @@ DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5433/
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+RABBITMQ_URL = os.getenv('RABBITMQ_URL', 'amqp://guest:guest@rabbitmq-service:5672/')
+
 db = SQLAlchemy(app)
-mq_manager = RabbitMQManager()
+mq_manager = RabbitMQManager(rabbitmq_url=RABBITMQ_URL)
 
 # ============================================================================
 # MODELLI ORM (GeoAlchemy2)
@@ -34,6 +36,9 @@ class Campus(db.Model):
     id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid())
     name = db.Column(db.String(100), unique=True, nullable=False)
     description = db.Column(db.Text, nullable=True)
+    
+    # Colonna che registra quale Amministratore ha creato il campus
+    admin_id = db.Column(UUID(as_uuid=True), nullable=False)
     
     # Colonna spaziale nativa. L'indice GiST viene creato in automatico da GeoAlchemy2
     geom = db.Column(Geometry('POLYGON', srid=4326, spatial_index=True), nullable=False)
@@ -52,18 +57,27 @@ def get_auth_context():
     return {
         'user_id': request.headers.get('X-User-Id'),
         'role': request.headers.get('X-User-Role'),
+        'email': request.headers.get('X-User-Email'), 
         'campus_ids': campus_ids
     }
 
 def publish_event(action, extra_data=None):
     """Wrapper per pubblicare eventi verso RabbitMQ."""
     auth = get_auth_context()
+    
+    if extra_data is None:
+        extra_data = {}
+        
+    # Iniettiamo l'email nel payload di tutti gli eventi generati da questo servizio
+    if auth.get('email'):
+        extra_data['email'] = auth.get('email')
+
     mq_manager.publish_event(
         exchange_name='system_events',
         action=action,
         actor_id=auth.get('user_id') or None,
         service_name='geozone-service',
-        extra_data=extra_data
+        extra_data=extra_data if extra_data else None
     )
 
 def error_response(message, status_code):
@@ -83,7 +97,7 @@ def health_check():
 def create_campus():
     """
     Crea e registra un nuovo perimetro universitario nel database spaziale.
-    Utilizza PostGIS per validare la correttezza geometrica del poligono.
+    Utilizza PostGIS per validare la correttezza geometrica e prevenire sovrapposizioni territoriali.
     """
     auth = get_auth_context()
     
@@ -105,24 +119,38 @@ def create_campus():
     if geometry.get('type') != 'Polygon':
         return error_response("Il sistema supporta unicamente geometrie di tipo 'Polygon'.", 400)
 
+    # 1. Controllo Testuale: Verifica se il nome esiste già (Case-Insensitive)
+    existing_campus = db.session.query(Campus).filter(func.lower(Campus.name) == func.lower(name)).first()
+    if existing_campus:
+        return error_response(f"Campus già presente: Il nome '{existing_campus.name}' risulta già censito.", 409)
+
     try:
-        # 1. Conversione del dizionario Python in stringa JSON per PostGIS
+        # Preparazione della geometria per PostGIS
         geojson_str = json.dumps(geometry)
+        new_geom = func.ST_SetSRID(func.ST_GeomFromGeoJSON(geojson_str), 4326)
 
-        # 2. Validazione geometrica demandata esclusivamente a PostGIS (ST_IsValid)
-        # Viene costruita la geometria in RAM sul DB e verificata (es. niente auto-intersezioni)
-        is_valid = db.session.query(
-            func.ST_IsValid(func.ST_GeomFromGeoJSON(geojson_str))
-        ).scalar()
-
+        # 2. Validazione Geometrica: Verifica che il poligono sia topologicamente valido
+        is_valid = db.session.query(func.ST_IsValid(new_geom)).scalar()
         if not is_valid:
-            return error_response("La geometria fornita non è un poligono topologicamente valido (es. auto-intersezioni rilevate).", 422)
+            return error_response("La geometria fornita non è un poligono topologicamente valido.", 422)
 
-        # 3. Creazione del modello (Uso di ST_SetSRID per imporre il sistema WGS 84)
+        # 3. Controllo Spaziale: Verifica che l'area non si sovrapponga a campus esistenti
+        overlapping_campus = db.session.query(Campus).filter(
+            func.ST_Intersects(Campus.geom, new_geom)
+        ).first()
+        
+        if overlapping_campus:
+            return error_response(
+                f"Area già assegnata: Il perimetro selezionato punta a un'area già coperta dal campus '{overlapping_campus.name}'.", 
+                409
+            )
+
+        # 4. Creazione e Salvataggio del modello
         new_campus = Campus(
             name=name,
             description=description,
-            geom=func.ST_SetSRID(func.ST_GeomFromGeoJSON(geojson_str), 4326)
+            geom=new_geom,
+            admin_id=auth.get('user_id') # Salva l'ID dell'Amministratore che lo sta creando
         )
 
         db.session.add(new_campus)
@@ -131,11 +159,14 @@ def create_campus():
         # 4. Estrazione dell'ID generato dal DB
         campus_id = new_campus.id
 
-        # 5. Pubblicazione dell'evento RabbitMQ (fondamentale per l'Auth Service)
-        publish_event("CAMPUS_CREATED", {
-            "campus_id": str(campus_id),
-            "campus_name": name
-        })
+        # 5. Pubblicazione evento RabbitMQ 
+        try:
+            publish_event("CAMPUS_CREATED", {
+                "campus_id": str(campus_id),
+                "campus_name": name
+            })
+        except Exception as e:
+            print(f"ATTENZIONE: Impossibile comunicare con RabbitMQ - {str(e)}")
 
         return jsonify({
             "message": "Campus creato con successo.",
@@ -152,7 +183,6 @@ def create_campus():
     except Exception as e:
         db.session.rollback()
         return error_response(f"Errore interno durante l'elaborazione geospaziale: {str(e)}", 500)
-    
     
 # ============================================================================
 # ENDPOINT: Consultazione elenco campus universitari 
@@ -173,14 +203,29 @@ def get_campuses():
     try:
         # Interrogazione ottimizzata: estraiamo le colonne base e deleghiamo 
         # a PostGIS la trasformazione della geometria in GeoJSON (ST_AsGeoJSON).
-        campuses = db.session.query(
+        query = db.session.query(
             Campus.id,
             Campus.name,
             Campus.description,
             func.ST_AsGeoJSON(Campus.geom).label('geometry_geojson'),
             Campus.created_at,
             Campus.updated_at
-        ).all()
+        )
+
+        # L'Amministratore vede direttamente e solo i campus che ha creato
+        if auth.get('role') == 'AMMINISTRATORE':
+            query = query.filter(Campus.admin_id == auth.get('user_id'))
+        
+        # L'Operatore vede esclusivamente quelli per cui è autorizzato dal token
+        elif auth.get('role') == 'OPERATORE':
+            campus_ids = auth.get('campus_ids', [])
+            if campus_ids:
+                query = query.filter(func.cast(Campus.id, db.String).in_(campus_ids))
+            else:
+                # Se l'operatore non ha campus, restituisce lista vuota
+                query = query.filter(False)
+
+        campuses = query.all()
 
         results = []
         for c in campuses:
@@ -188,7 +233,6 @@ def get_campuses():
                 "id": str(c.id),
                 "name": c.name,
                 "description": c.description,
-                # ST_AsGeoJSON restituisce una stringa; la parsiamo per inviare un JSON strutturato
                 "geometry": json.loads(c.geometry_geojson) if c.geometry_geojson else None,
                 "created_at": c.created_at.isoformat() if c.created_at else None,
                 "updated_at": c.updated_at.isoformat() if c.updated_at else None
@@ -323,7 +367,7 @@ def update_campus(campus_id):
         if not events_to_publish:
             return error_response("Nessun campo valido fornito per l'aggiornamento.", 400)
 
-        # 4. Commit nel database. Il trigger ON UPDATE/onupdate aggiornerà 'updated_at'
+        # 4. Commit nel database. Il trigger ON UPDATE/onupdate aggiornerà 'updated_at  
         db.session.commit()
 
         # 5. Pubblicazione asincrona degli eventi
@@ -333,7 +377,7 @@ def update_campus(campus_id):
                 "campus_name": campus.name
             })
 
-        # 6. Ritorna il campus aggiornato estraendo la nuova geometria
+        # 6. Ritorna il campus aggiornato estraendo la nuova geometria 
         updated_campus = db.session.query(
             Campus.id,
             Campus.name,
@@ -372,7 +416,7 @@ def delete_campus(campus_id):
     """
     auth = get_auth_context()
     
-    # Controllo di sicurezza rigoroso: solo l'Amministratore può eliminare
+    # Controllo di sicurezza rigoroso: solo l'Amministratore può eliminare 
     if auth.get('role') != 'AMMINISTRATORE':
         return error_response("Accesso negato. Richiesto ruolo AMMINISTRATORE.", 403)
 

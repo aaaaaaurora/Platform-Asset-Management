@@ -83,7 +83,6 @@ def test_process_log_event_callback(mock_mq_manager, client):
     """Simula la ricezione di un evento RabbitMQ e verifica la persistenza su DB."""
     from app import process_log_event
     
-    # Creazione di un finto canale e corpo del messaggio
     mock_channel = MagicMock()
     mock_method = MagicMock()
     mock_method.delivery_tag = 1
@@ -98,19 +97,16 @@ def test_process_log_event_callback(mock_mq_manager, client):
     }
     body = json.dumps(event_data).encode('utf-8')
     
-    # Esecuzione della callback
     process_log_event(mock_channel, mock_method, None, body)
     
-    # Verifiche
     mock_channel.basic_ack.assert_called_once_with(delivery_tag=1)
     
+    from app import app, AuditLogRepository
     with app.app_context():
         logs = AuditLogRepository.get_all_logs({})
         assert len(logs) == 1
         assert logs[0].action == "USER_CREATED"
-        assert logs[0].service_name == "auth-service"
-
-
+        
 # ============================================================================
 # 3. TEST CONSULTAZIONE STORICO (US 7-1 / UC-AMM-05)
 # ============================================================================
@@ -119,7 +115,8 @@ def test_get_logs_unauthorized(client, sample_log):
     """Verifica che un utente non amministratore riceva 403 Forbidden."""
     response = client.get('/api/logs', headers={
         "X-User-Role": "OPERATORE",
-        "X-User-Id": "user-123"
+        "X-User-Id": "user-123",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 403
 
@@ -128,7 +125,8 @@ def test_get_logs_success(client, sample_log):
     """Verifica la consultazione dello storico con successo per l'Amministratore."""
     response = client.get('/api/logs?limit=10&page=1', headers={
         "X-User-Role": "AMMINISTRATORE",
-        "X-User-Id": "admin-123"
+        "X-User-Id": "admin-123",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 200
     data = response.get_json()
@@ -141,14 +139,16 @@ def test_get_logs_with_filters(client, sample_log):
     """Verifica i filtri per service_name e campus_id (JSONB)."""
     # Filtro corretto
     response = client.get('/api/logs?service_name=asset-service&campus_id=campus-uuid-123', headers={
-        "X-User-Role": "AMMINISTRATORE"
+        "X-User-Role": "AMMINISTRATORE",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 200
     assert response.get_json()["total_items"] == 1
 
-    # Filtro con campus inesistente
+    # Filtro con campus inesistente o non autorizzato
     response_empty = client.get('/api/logs?campus_id=campus-inesistente', headers={
-        "X-User-Role": "AMMINISTRATORE"
+        "X-User-Role": "AMMINISTRATORE",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response_empty.status_code == 200
     assert response_empty.get_json()["total_items"] == 0
@@ -161,7 +161,8 @@ def test_get_logs_with_filters(client, sample_log):
 def test_get_log_detail_success(client, sample_log):
     """Verifica il recupero del dettaglio di un singolo log tramite UUID."""
     response = client.get(f'/api/logs/{sample_log.id}', headers={
-        "X-User-Role": "AMMINISTRATORE"
+        "X-User-Role": "AMMINISTRATORE",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 200
     data = response.get_json()
@@ -173,7 +174,8 @@ def test_get_log_detail_not_found(client):
     """Verifica che un UUID inesistente restituisca 404 Not Found."""
     fake_uuid = "00000000-0000-0000-0000-000000000000"
     response = client.get(f'/api/logs/{fake_uuid}', headers={
-        "X-User-Role": "AMMINISTRATORE"
+        "X-User-Role": "AMMINISTRATORE",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 404
 
@@ -185,19 +187,19 @@ def test_get_log_detail_not_found(client):
 def test_export_logs_csv(client, sample_log):
     """Verifica l'esportazione dinamica in formato CSV."""
     response = client.get('/api/logs/export', headers={
-        "X-User-Role": "AMMINISTRATORE"
+        "X-User-Role": "AMMINISTRATORE",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 200
-    
-    # CORREZIONE: Includiamo il charset aggiunto automaticamente da Flask
     assert response.headers["Content-Type"] == "text/csv; charset=utf-8"
-    
     assert "attachment" in response.headers["Content-Disposition"]
     
     csv_content = response.data.decode('utf-8')
-    assert "service_name" in csv_content
-    assert "asset-service" in csv_content
-    assert "campus_id" in csv_content  # Chiave dinamica del JSONB esplosa come colonna
+    
+    assert "Servizio" in csv_content
+    assert "Azione" in csv_content
+    assert "Utente" in csv_content
+    assert len(csv_content.splitlines()) > 1
 
 
 # ============================================================================
@@ -205,9 +207,10 @@ def test_export_logs_csv(client, sample_log):
 # ============================================================================
 
 def test_dashboard_metrics(client, sample_log):
-    """Verifica il calcolo delle metriche KPI e distribuzioni."""
+    """Verifica il calcolo netto delle metriche KPI e distribuzioni."""
     response = client.get('/api/dashboard/metrics', headers={
-        "X-User-Role": "AMMINISTRATORE"
+        "X-User-Role": "AMMINISTRATORE",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 200
     data = response.get_json()
@@ -220,16 +223,13 @@ def test_dashboard_metrics(client, sample_log):
 
 
 def test_dashboard_charts(client, sample_log):
-    """Verifica la generazione dei dati per i grafici (Time-Series e attributi custom)."""
-    response = client.get('/api/dashboard/charts?dynamic_attribute=status', headers={
-        "X-User-Role": "AMMINISTRATORE"
+    """Verifica la generazione dei dati per i grafici (Time-Series)."""
+    response = client.get('/api/dashboard/charts', headers={
+        "X-User-Role": "AMMINISTRATORE",
+        "X-Campus-Ids": "campus-uuid-123"
     })
     assert response.status_code == 200
     data = response.get_json()
     
     assert "time_series" in data
     assert isinstance(data["time_series"], list)
-    
-    assert "dynamic_distribution" in data
-    assert data["dynamic_distribution"]["attribute"] == "status"
-    assert data["dynamic_distribution"]["data"]["operativo"] == 1

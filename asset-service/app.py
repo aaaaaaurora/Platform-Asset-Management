@@ -6,6 +6,7 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
 import dateutil.parser
 import threading
+import json
 
 # Import della libreria centralizzata per RabbitMQ
 from shared_utils.messaging import RabbitMQManager
@@ -21,10 +22,12 @@ try:
     client = MongoClient(DATABASE_URL, serverSelectionTimeoutMS=5000)
     db = client.get_default_database()
     
-    # Riferimenti alle collezioni previste dallo SDA
+    # Riferimenti alle collezioni previste 
     categories_col = db.categories
     assets_col = db.assets
     history_col = db.asset_history
+    campus_cache_col = db.campus_cache
+
 except ConnectionFailure as e:
     print(f"[ASSET SERVICE] Errore di connessione a MongoDB: {e}")
 
@@ -32,9 +35,8 @@ except ConnectionFailure as e:
 mq_manager = RabbitMQManager()
 
 # ============================================================================
-# FUNZIONI DI UTILITA' E MIDDLEWARE 
+# FUNZIONI DI UTILITA' E MIDDLEWARE
 # ============================================================================
-
 def get_auth_context():
     """
     Estrae le informazioni di sicurezza propagate dall'API Gateway.
@@ -46,8 +48,11 @@ def get_auth_context():
     return {
         'user_id': request.headers.get('X-User-Id'),
         'role': request.headers.get('X-User-Role'),
-        'campus_ids': campus_ids
+        'email' : request.headers.get('X-User-Email'), # <-- MODIFICA: Presa dell'email dal Gateway
+        'campus_ids': campus_ids,
+        'client_type': request.headers.get('X-Client-Type', 'web').lower()
     }
+
 
 def serialize_mongo_doc(doc):
     """
@@ -74,6 +79,14 @@ def publish_event(action, extra_data=None):
     Wrapper per pubblicare eventi verso DataInsight Service o altri consumer.
     """
     auth = get_auth_context()
+    
+    if extra_data is None:
+        extra_data = {}
+        
+    # <-- MODIFICA: Iniettiamo l'email nel payload
+    if auth.get('email'):
+        extra_data['email'] = auth.get('email')
+
     mq_manager.publish_event(
         exchange_name='system_events',
         action=action,
@@ -81,6 +94,17 @@ def publish_event(action, extra_data=None):
         service_name='asset-service',
         extra_data=extra_data
     )
+
+def get_cached_campus_name(campus_id):
+    """Recupera il nome del campus dalla cache locale senza chiamate esterne."""
+    doc = campus_cache_col.find_one({"_id": campus_id})
+    return doc.get("name") if doc else None
+
+def extract_asset_name(asset_id):
+    """Utilizza lo Short-ID (primi 8 caratteri) come identificativo univoco e infallibile."""
+    if not asset_id:
+        return None
+    return f"ID-{str(asset_id)[:8].upper()}"
 
 # ============================================================================
 # ENDPOINT DI SISTEMA
@@ -93,7 +117,6 @@ def health_check():
 # ============================================================================
 # ENDPOINT: Creazione Categoria 
 # ============================================================================
-
 @app.route('/api/categories', methods=['POST'])
 def create_category():
     """
@@ -119,6 +142,7 @@ def create_category():
     new_category = {
         "name": category_name,
         "description": data.get('description', ''),
+        "icon": data.get('icon', '📍'), 
         "attributes": [], # Inizialmente vuoto, popolato dinamicamente in seguito
         "created_by": auth.get('user_id'),
         "created_at": datetime.datetime.utcnow().isoformat(),
@@ -130,7 +154,10 @@ def create_category():
         new_category['_id'] = str(result.inserted_id)
         
         # Pubblicazione evento asincrono per il DataInsight Service
-        publish_event("CATEGORY_CREATED", {"category_id": new_category['_id'], "category_name": category_name})
+        publish_event("CATEGORY_CREATED", {
+            "category_id": new_category['_id'], 
+            "category_name": category_name
+        })
 
         return jsonify({
             "message": "Categoria creata con successo",
@@ -225,6 +252,10 @@ def update_category(category_id):
     if 'description' in data:
         update_fields['description'] = data['description']
 
+    # 3. Aggiornamento Icona
+    if 'icon' in data:
+        update_fields['icon'] = data['icon']
+
     if not update_fields:
         return error_response("Nessun campo valido fornito per l'aggiornamento", 400)
 
@@ -240,14 +271,16 @@ def update_category(category_id):
         if result.matched_count == 0:
             return error_response("Categoria non trovata", 404)
 
+        # Recupera e restituisce il documento aggiornato
+        updated_category = categories_col.find_one({"_id": ObjectId(category_id)})
+
         # Tracciabilità asincrona
         publish_event("CATEGORY_UPDATED", {
             "category_id": category_id, 
+            "category_name": updated_category.get('name'),
             "updated_fields": list(update_fields.keys())
         })
 
-        # Recupera e restituisce il documento aggiornato
-        updated_category = categories_col.find_one({"_id": ObjectId(category_id)})
         return jsonify(serialize_mongo_doc(updated_category)), 200
 
     except Exception as e:
@@ -342,6 +375,7 @@ def add_category_attribute(category_id):
         # 6. Tracciabilità asincrona (DataInsight Service / Log Service)
         publish_event("ATTRIBUTE_ADDED", {
             "category_id": category_id,
+            "category_name": category.get('name'),
             "attribute_name": attr_name,
             "attribute_type": attr_type
         })
@@ -353,6 +387,51 @@ def add_category_attribute(category_id):
     except Exception as e:
         return error_response(f"Errore durante l'aggiunta dell'attributo: {str(e)}", 500)
 
+
+# ============================================================================
+# ENDPOINT: Eliminazione Categoria
+# ============================================================================
+@app.route('/api/categories/<category_id>', methods=['DELETE'])
+def delete_category(category_id):
+    """
+    Elimina fisicamente una categoria. 
+    L'operazione è permessa solo agli Amministratori.
+    """
+    auth = get_auth_context()
+    
+    if auth.get('role') != 'AMMINISTRATORE':
+        return error_response("Accesso negato. Richiesto ruolo AMMINISTRATORE.", 403)
+
+    if not ObjectId.is_valid(category_id):
+        return error_response("ID categoria non valido", 400)
+
+    try:
+        # Recupera il nome della categoria prima di eliminarla
+        category = categories_col.find_one({"_id": ObjectId(category_id)})
+        if not category:
+            return error_response("Categoria non trovata", 404)
+        cat_name = category.get('name', 'Categoria Sconosciuta')
+
+        # Verifica se la categoria è usata da qualche asset
+        assets_using_cat = assets_col.count_documents({"category_id": category_id})
+        if assets_using_cat > 0:
+            return error_response("Impossibile eliminare: ci sono asset associati a questa categoria. Elimina prima gli asset.", 409)
+
+        result = categories_col.delete_one({"_id": ObjectId(category_id)})
+        
+        if result.deleted_count == 0:
+            return error_response("Categoria non trovata", 404)
+
+        # Tracciabilità
+        publish_event("CATEGORY_DELETED", {
+            "category_id": category_id,
+            "category_name": cat_name
+        })
+
+        return jsonify({"message": "Categoria eliminata con successo"}), 200
+
+    except Exception as e:
+        return error_response(f"Errore durante l'eliminazione: {str(e)}", 500)
 
 # ============================================================================
 # ENDPOINT: Modifica di un attributo dinamico di una categoria
@@ -450,6 +529,7 @@ def update_category_attribute(category_id, attribute_name):
         # 8. Eventi RabbitMQ
         publish_event("ATTRIBUTE_UPDATED", {
             "category_id": category_id,
+            "category_name": category.get('name'),
             "old_name": attribute_name,
             "new_name": new_name,
             "new_type": new_type
@@ -458,6 +538,7 @@ def update_category_attribute(category_id, attribute_name):
         if new_status == "unavailable" and current_attr.get('status') != "unavailable":
             publish_event("ATTRIBUTE_DEPRECATED", {
                 "category_id": category_id,
+                "category_name": category.get('name'),
                 "attribute_name": new_name
             })
 
@@ -476,68 +557,83 @@ def update_category_attribute(category_id, attribute_name):
 def validate_asset_metadata(payload_metadata, category_attributes):
     """
     Valida il dizionario dei metadati inviato dal client contro la struttura 
-    della categoria (tipi, obbligatorietà, enum, deprecazione).
+    della categoria, ignorando le differenze tra maiuscole e minuscole (case-insensitive).
     """
     validated_data = {}
     errors = []
 
-    # Creiamo un dizionario di facile accesso per gli attributi della categoria
-    # Ignoriamo totalmente quelli con status 'unavailable' (US 2-4)
-    active_attrs = {attr['name']: attr for attr in category_attributes if attr.get('status') != 'unavailable'}
+    # Mappa degli attributi attivi indicizzata per nome in MINUSCOLO per facilitare il match
+    active_attrs_lower = {
+        attr['name'].lower(): attr 
+        for attr in category_attributes 
+        if attr.get('status') != 'unavailable'
+    }
+
+    # Trasformiamo in minuscolo anche le chiavi arrivate dal payload per un rapido controllo di presenza
+    payload_keys_lower = {k.lower(): k for k in payload_metadata.keys()}
 
     # 1. Verifica campi obbligatori
-    for attr_name, attr_rules in active_attrs.items():
-        if attr_rules.get('required') and attr_name not in payload_metadata:
-            errors.append(f"Il campo obbligatorio '{attr_name}' è mancante.")
+    for attr in category_attributes:
+        if attr.get('status') == 'unavailable':
+            continue
+            
+        attr_name_original = attr['name']
+        
+        if attr.get('required') and attr_name_original.lower() not in payload_keys_lower:
+            errors.append(f"Il campo obbligatorio '{attr_name_original}' è mancante.")
 
     # 2. Verifica tipi di dato e vincoli per i campi forniti
-    for key, value in payload_metadata.items():
-        if key not in active_attrs:
-            # Opzionale: puoi ignorare campi non previsti o bloccarli. Qui li blocchiamo per pulizia.
-            errors.append(f"L'attributo '{key}' non è valido o è stato deprecato per questa categoria.")
+    for payload_key, value in payload_metadata.items():
+        payload_key_lower = payload_key.lower()
+
+        if payload_key_lower not in active_attrs_lower:
+            errors.append(f"L'attributo '{payload_key}' non è valido o è stato deprecato per questa categoria.")
             continue
 
-        rules = active_attrs[key]
+        # Estraiamo la regola e il nome con il CASING ESATTO previsto dal database
+        rules = active_attrs_lower[payload_key_lower]
+        real_db_key = rules['name']
         expected_type = rules['type']
 
         if value is None or value == "":
             if rules.get('required'):
-                errors.append(f"Il campo '{key}' non può essere vuoto.")
+                errors.append(f"Il campo '{real_db_key}' non può essere vuoto.")
             continue # Se non è obbligatorio e viene inviato vuoto, lo accettiamo come nullo
 
         # Validazione Tipo
         try:
             if expected_type == 'string':
                 if not isinstance(value, str):
-                    errors.append(f"Il campo '{key}' deve essere una stringa.")
+                    errors.append(f"Il campo '{real_db_key}' deve essere una stringa.")
                 else:
-                    validated_data[key] = str(value)
+                    validated_data[real_db_key] = str(value)
 
             elif expected_type == 'number':
                 if not isinstance(value, (int, float)):
-                    errors.append(f"Il campo '{key}' deve essere un numero.")
+                    errors.append(f"Il campo '{real_db_key}' deve essere un numero.")
                 else:
-                    validated_data[key] = float(value)
+                    validated_data[real_db_key] = float(value)
 
             elif expected_type == 'boolean':
                 if not isinstance(value, bool):
-                    errors.append(f"Il campo '{key}' deve essere un booleano (true/false).")
+                    errors.append(f"Il campo '{real_db_key}' deve essere un booleano (true/false).")
                 else:
-                    validated_data[key] = bool(value)
+                    validated_data[real_db_key] = bool(value)
 
             elif expected_type == 'date':
                 # Verifica che sia una data ISO 8601 valida
                 dateutil.parser.isoparse(str(value))
-                validated_data[key] = str(value)
+                validated_data[real_db_key] = str(value)
 
             elif expected_type == 'enum':
+                # L'enum rimane case-sensitive per i valori, ma la chiave è tollerante
                 if value not in rules.get('options', []):
-                    errors.append(f"Il valore '{value}' non è tra le opzioni valide per '{key}'.")
+                    errors.append(f"Il valore '{value}' non è tra le opzioni valide per '{real_db_key}'.")
                 else:
-                    validated_data[key] = str(value)
+                    validated_data[real_db_key] = str(value)
 
         except ValueError:
-            errors.append(f"Formato non valido per il campo '{key}' (Atteso: {expected_type}).")
+            errors.append(f"Formato non valido per il campo '{real_db_key}' (Atteso: {expected_type}).")
 
     return validated_data, errors
 
@@ -556,10 +652,30 @@ def create_asset():
     user_id = auth.get('user_id')
     user_role = auth.get('role')
     user_campuses = auth.get('campus_ids', [])
+    client_type = auth.get('client_type') 
+    
+    # Estrazione degli header di rete per l'identificazione del dispositivo
+    request_origin = request.headers.get('Origin', '')
+    user_agent = request.headers.get('User-Agent', '').lower()
 
-    # Solo Operatori e Amministratori possono censire asset
-    if user_role not in ['OPERATORE', 'AMMINISTRATORE']:
-        return error_response("Non hai i permessi per censire un asset", 403)
+    # 1. L'Amministratore NON può creare asset
+    if user_role == 'AMMINISTRATORE':
+        return error_response("Gli amministratori non possono censire fisicamente gli asset.", 403)
+
+    # 2. Solo gli Operatori possono procedere
+    if user_role != 'OPERATORE':
+        return error_response("Non hai i permessi per censire un asset.", 403)
+
+    # 3. Controllo Intelligente del Dispositivo (Mobile / Android / Capacitor)
+    is_mobile_header = client_type == 'mobile'
+    is_mobile_os = any(os in user_agent for os in ['android', 'iphone', 'ipad', 'capacitor', 'mobile'])
+    valid_capacitor_origins = ['http://localhost', 'https://localhost', 'capacitor://localhost']
+    is_native_origin = request_origin in valid_capacitor_origins
+
+    # Se non soddisfa nessuna delle condizioni mobile/native, viene respinto (es. Desktop Web)
+    if not (is_mobile_header or is_mobile_os or is_native_origin):
+        publish_event("UNAUTHORIZED_DESKTOP_CREATION_ATTEMPT", {"user_agent": user_agent})
+        return error_response("Il censimento degli asset è consentito solo tramite l'App Mobile.", 403)
 
     data = request.get_json()
     if not data:
@@ -569,6 +685,8 @@ def create_asset():
     campus_id = data.get('campus_id')
     geometry = data.get('geometry') # Formato atteso: GeoJSON {"type": "Point", "coordinates": [lng, lat]}
     raw_metadata = data.get('metadata', {})
+    media_ids = data.get('media_ids', []) # <--- Estrazione degli ID delle immagini
+    media_id = data.get('media_id')       # <--- Fallback
 
     if not category_id or not campus_id or not geometry:
         return error_response("Parametri mancanti: 'category_id', 'campus_id' e 'geometry' sono obbligatori", 400)
@@ -598,6 +716,8 @@ def create_asset():
         "campus_id": campus_id, # Soft Link al GeoZone Service
         "geometry": geometry,   # GeoJSON nativo per indicizzazione spaziale
         "metadata": validated_metadata,
+        "media_ids": media_ids, # <--- Inserimento nell'oggetto database
+        "media_id": media_id,   # <--- Inserimento nell'oggetto database
         "created_by": user_id,
         "updated_by": user_id,
         "created_at": timestamp,
@@ -620,11 +740,18 @@ def create_asset():
         }
         history_col.insert_one(snapshot)
 
+        # INIEZIONE NOMI PER LA TABELLA DEI LOG (Local Cache & Extraction)
+        campus_name = get_cached_campus_name(campus_id)
+        asset_name = extract_asset_name(asset_id)
+
         # 6. Tracciabilità asincrona (RabbitMQ)
         publish_event("ASSET_CREATED", {
             "asset_id": asset_id,
+            "asset_name": asset_name, 
             "category_id": category_id,
-            "campus_id": campus_id
+            "category_name": category.get('name', 'Sconosciuta'),
+            "campus_id": campus_id,
+            "campus_name": campus_name
         })
 
         return jsonify({
@@ -635,11 +762,11 @@ def create_asset():
     except Exception as e:
         return error_response(f"Errore durante il censimento: {str(e)}", 500)
     
-
+ 
 # ============================================================================
 # ENDPOINT: Consultazione di un Asset esistente
 # ============================================================================
-
+ 
 @app.route('/api/assets/<asset_id>', methods=['GET'])
 def get_asset(asset_id):
     """
@@ -732,9 +859,11 @@ def update_asset(asset_id):
             "updated_at": timestamp
         }
 
-        # L'aggiornamento geografico è opzionale
         if 'geometry' in data:
             update_fields['geometry'] = data['geometry']
+            
+        if 'media_ids' in data:
+            update_fields['media_ids'] = data['media_ids']
 
         # 6. Salvataggio del nuovo stato corrente (sovrascrittura su 'assets')
         assets_col.update_one(
@@ -755,11 +884,18 @@ def update_asset(asset_id):
         }
         history_col.insert_one(snapshot)
 
+        # INIEZIONE NOMI PER LA TABELLA DEI LOG 
+        campus_name = get_cached_campus_name(updated_asset.get('campus_id'))
+        asset_name = extract_asset_name(asset_id)
+
         # 8. Eventi RabbitMQ
         publish_event("ASSET_UPDATED", {
             "asset_id": asset_id,
+            "asset_name": asset_name,  
             "category_id": category_id,
+            "category_name": category.get('name', 'Sconosciuta'),
             "campus_id": updated_asset.get('campus_id'),
+            "campus_name": campus_name,  
             "updated_keys": list(raw_metadata.keys())
         })
 
@@ -770,7 +906,6 @@ def update_asset(asset_id):
 
     except Exception as e:
         return error_response(f"Errore durante l'aggiornamento dell'asset: {str(e)}", 500)
-
 
 # ============================================================================
 # ENDPOINT: Ricerca, filtraggio e visualizzazione massiva degli Asset
@@ -791,59 +926,123 @@ def get_assets():
     # Inizializzazione della query vuota per MongoDB
     mongo_query = {}
 
-    # 1. Filtro di Sicurezza Territoriale (US 5-3, US 5-4)
-    if user_role == 'OPERATORE':
-        # Un operatore vede SOLO ed ESCLUSIVAMENTE gli asset dei suoi campus autorizzati
+    # 1. Filtro di Sicurezza Territoriale (Applicato ora anche agli Amministratori)
+    if user_role in ['OPERATORE', 'AMMINISTRATORE']:
         if not user_campuses:
-            # Se un operatore non ha campus assegnati, la query restituirebbe tutto. 
-            # Dobbiamo bloccare restituendo array vuoto.
             return jsonify({"assets": [], "pagination": {}}), 200 
             
-        mongo_query['campus_id'] = {'$in': user_campuses}
+        requested_campus_param = request.args.get('campus_id')
+        if requested_campus_param:
+            # Suddividiamo la stringa separata da virgole in una lista
+            requested_campuses = [c.strip() for c in requested_campus_param.split(',')]
+            valid_campuses = [c for c in requested_campuses if c in user_campuses]
+            if not valid_campuses:
+                return jsonify({"assets": [], "pagination": {}}), 200
+            mongo_query['campus_id'] = {'$in': valid_campuses}
+        else:
+            # Forza la query a restituire solo gli asset dei propri campus
+            mongo_query['campus_id'] = {'$in': user_campuses}
+
+    # 2. Filtro per Categoria Strutturale
+    requested_category_param = request.args.get('category_id')
+    if requested_category_param:
+        # Suddividiamo la stringa separata da virgole in una lista
+        requested_categories = [c.strip() for c in requested_category_param.split(',')]
+        for cat_id in requested_categories:
+            if not ObjectId.is_valid(cat_id):
+                return error_response(f"ID Categoria non valido: {cat_id}", 400)
+        mongo_query['category_id'] = {'$in': requested_categories}
         
-    elif user_role == 'AMMINISTRATORE':
-        # Un amministratore vede tutto di default, ma può filtrare volontariamente per campus
-        requested_campus = request.args.get('campus_id')
-        if requested_campus:
-            mongo_query['campus_id'] = requested_campus
+    # 3. Filtri Dinamici e Logica di Isolamento Assoluto per Categoria
+    category_id_param = request.args.get('category_id')
+    requested_categories = [c.strip() for c in category_id_param.split(',')] if category_id_param else []
 
-    # 2. Filtro per Categoria Strutturale (US 5-2)
-    category_id = request.args.get('category_id')
-    if category_id:
-        if not ObjectId.is_valid(category_id):
-            return error_response("ID Categoria non valido", 400)
-        mongo_query['category_id'] = category_id
-
-    # 3. Filtri Dinamici sugli Attributi (US 5-2)
     def parse_filter_value(v):
-        """Tenta il cast del valore stringa al tipo nativo corretto."""
         v = v.strip()
         if v.lower() == 'true': return True
         if v.lower() == 'false': return False
-        try:
-            return float(v) # MongoDB incrocia automaticamente int e float
-        except ValueError:
-            return v # Se fallisce, è una normale stringa
+        try: return float(v) 
+        except ValueError: return v 
+
+    dynamic_filters_by_cat = {}
+    global_dynamic_filters = {}
 
     for key, value in request.args.items():
-        if key.startswith('attr_'):
-            attr_name = key[5:] 
-            
+        if key.startswith('attr_') and value.strip():
+            remainder = key[5:]
+            # Verifichiamo se è il nuovo formato frontend: attr_{cat_id}_{attr_name}
+            if '_' in remainder:
+                parts = remainder.split('_', 1)
+                potential_cat_id = parts[0]
+                
+                # Un ObjectId di MongoDB è sempre di 24 caratteri
+                if len(potential_cat_id) == 24:
+                    cat_id = potential_cat_id
+                    attr_name = parts[1]
+                    
+                    if cat_id not in dynamic_filters_by_cat:
+                        dynamic_filters_by_cat[cat_id] = {}
+                        
+                    if ',' in value:
+                        parsed_values = [parse_filter_value(v) for v in value.split(',')]
+                        dynamic_filters_by_cat[cat_id][f'metadata.{attr_name}'] = {'$in': parsed_values}
+                    else:
+                        dynamic_filters_by_cat[cat_id][f'metadata.{attr_name}'] = parse_filter_value(value)
+                    continue
+                    
+            # Fallback ai filtri globali legacy
+            attr_name = remainder
             if ',' in value:
                 parsed_values = [parse_filter_value(v) for v in value.split(',')]
-                mongo_query[f'metadata.{attr_name}'] = {'$in': parsed_values}
+                global_dynamic_filters[f'metadata.{attr_name}'] = {'$in': parsed_values}
             else:
-                mongo_query[f'metadata.{attr_name}'] = parse_filter_value(value)
-                
+                global_dynamic_filters[f'metadata.{attr_name}'] = parse_filter_value(value)
+
+    if requested_categories and (dynamic_filters_by_cat or global_dynamic_filters):
+        or_clauses = []
+        categories_map = {str(c['_id']): [attr['name'] for attr in c.get('attributes', [])] for c in categories_col.find({"_id": {"$in": [ObjectId(cid) for cid in requested_categories if ObjectId.is_valid(cid)]}})}
+
+        for cat_id in requested_categories:
+            # Isoliamo la sub-query per non intaccare le altre
+            cat_sub_query = {k: v for k, v in mongo_query.items() if k != 'category_id' and k != '$or'}
+            cat_sub_query['category_id'] = cat_id
+            
+            valid_attr_names_for_cat = categories_map.get(cat_id, [])
+            
+            # 1. Applica in modo chirurgico solo i filtri della sua specifica categoria
+            if cat_id in dynamic_filters_by_cat:
+                for filter_key, filter_val in dynamic_filters_by_cat[cat_id].items():
+                    attr_real_name = filter_key.replace('metadata.', '')
+                    if attr_real_name in valid_attr_names_for_cat:
+                        cat_sub_query[filter_key] = filter_val
+                        
+            # 2. Applica eventuali filtri globali se validi per questa categoria
+            for filter_key, filter_val in global_dynamic_filters.items():
+                attr_real_name = filter_key.replace('metadata.', '')
+                if attr_real_name in valid_attr_names_for_cat:
+                    cat_sub_query[filter_key] = filter_val
+            
+            or_clauses.append(cat_sub_query)
+            
+        mongo_query = {k: v for k, v in mongo_query.items() if k not in ['category_id', '$or']}
+        mongo_query['$or'] = or_clauses
+
+    elif requested_categories:
+        mongo_query['category_id'] = {'$in': requested_categories}
+    
+    elif global_dynamic_filters:
+        for k, v in global_dynamic_filters.items():
+            mongo_query[k] = v
+            
     # 4. Configurazione Paginazione
     try:
         page = int(request.args.get('page', 1))
-        limit = int(request.args.get('limit', 50)) # Mostra 50 risultati di default
+        limit = int(request.args.get('limit', 500)) # Alzato a 500 per la mappa (gestione massiva)
         if page < 1: page = 1
-        if limit < 1 or limit > 500: limit = 50 # Previeni payload massivi
+        if limit < 1 or limit > 1000: limit = 500
     except ValueError:
         page = 1
-        limit = 50
+        limit = 500
         
     skip = (page - 1) * limit
 
@@ -857,10 +1056,6 @@ def get_assets():
         
         serialized_assets = [serialize_mongo_doc(asset) for asset in assets_list]
         
-        # 6. Costruzione della Risposta
-        # Ogni elemento in 'assets' include il campo 'geometry' in formato GeoJSON,
-        # fornendo al frontend (US 5-1) tutto ciò che serve per piazzare i marker sulla mappa
-        # e per costruire la tabella in Visualizzazione Elenco.
         return jsonify({
             "assets": serialized_assets,
             "pagination": {
@@ -873,7 +1068,180 @@ def get_assets():
         
     except Exception as e:
         return error_response(f"Errore durante la ricerca degli asset: {str(e)}", 500)
+
+# ============================================================================
+# ENDPOINT: Esportazione CSV degli Assets 
+# ============================================================================
+@app.route('/api/assets/export', methods=['GET'])
+def export_assets():
+    """
+    Esporta in formato CSV gli asset filtrati, estraendo dinamicamente 
+    tutti gli attributi valorizzati. L'uso è riservato agli Amministratori.
+    """
+    auth = get_auth_context()
+    if auth.get('role') != 'AMMINISTRATORE':
+        return error_response("Accesso negato. Solo gli Amministratori possono esportare gli asset.", 403)
+
+    user_campuses = auth.get('campus_ids', [])
+    mongo_query = {}
+
+    # 1. Filtro Territoriale 
+    requested_campus_param = request.args.get('campus_id')
+    if requested_campus_param:
+        requested_campuses = [c.strip() for c in requested_campus_param.split(',')]
+        valid_campuses = [c for c in requested_campuses if c in user_campuses]
+        if not valid_campuses:
+            from flask import Response
+            return Response("\ufeffNessun dato corrispondente ai filtri.", mimetype="text/csv")
+        mongo_query['campus_id'] = {'$in': valid_campuses}
+    else:
+        mongo_query['campus_id'] = {'$in': user_campuses}
+
+    # 2. Filtro Categoria base (se inserito nei parametri)
+    requested_category_param = request.args.get('category_id')
+    if requested_category_param:
+        requested_categories = [c.strip() for c in requested_category_param.split(',')]
+        mongo_query['category_id'] = {'$in': requested_categories}
+        
+    # 3. Filtri Dinamici e Logica di Isolamento Assoluto per Categoria
+    category_id_param = request.args.get('category_id')
+    requested_categories = [c.strip() for c in category_id_param.split(',')] if category_id_param else []
+
+    def parse_filter_value(v):
+        v = v.strip()
+        if v.lower() == 'true': return True
+        if v.lower() == 'false': return False
+        try: return float(v) 
+        except ValueError: return v 
+
+    dynamic_filters_by_cat = {}
+    global_dynamic_filters = {}
+
+    for key, value in request.args.items():
+        if key.startswith('attr_') and value.strip():
+            remainder = key[5:]
+            # Verifichiamo se è il nuovo formato frontend: attr_{cat_id}_{attr_name}
+            if '_' in remainder:
+                parts = remainder.split('_', 1)
+                potential_cat_id = parts[0]
+                
+                # Un ObjectId di MongoDB è sempre di 24 caratteri
+                if len(potential_cat_id) == 24:
+                    cat_id = potential_cat_id
+                    attr_name = parts[1]
+                    
+                    if cat_id not in dynamic_filters_by_cat:
+                        dynamic_filters_by_cat[cat_id] = {}
+                        
+                    if ',' in value:
+                        parsed_values = [parse_filter_value(v) for v in value.split(',')]
+                        dynamic_filters_by_cat[cat_id][f'metadata.{attr_name}'] = {'$in': parsed_values}
+                    else:
+                        dynamic_filters_by_cat[cat_id][f'metadata.{attr_name}'] = parse_filter_value(value)
+                    continue
+                    
+            # Fallback ai filtri globali legacy
+            attr_name = remainder
+            if ',' in value:
+                parsed_values = [parse_filter_value(v) for v in value.split(',')]
+                global_dynamic_filters[f'metadata.{attr_name}'] = {'$in': parsed_values}
+            else:
+                global_dynamic_filters[f'metadata.{attr_name}'] = parse_filter_value(value)
+
+    if requested_categories and (dynamic_filters_by_cat or global_dynamic_filters):
+        or_clauses = []
+        categories_map = {str(c['_id']): [attr['name'] for attr in c.get('attributes', [])] for c in categories_col.find({"_id": {"$in": [ObjectId(cid) for cid in requested_categories if ObjectId.is_valid(cid)]}})}
+
+        for cat_id in requested_categories:
+            # Isoliamo la sub-query per non intaccare le altre
+            cat_sub_query = {k: v for k, v in mongo_query.items() if k != 'category_id' and k != '$or'}
+            cat_sub_query['category_id'] = cat_id
+            
+            valid_attr_names_for_cat = categories_map.get(cat_id, [])
+            
+            # 1. Applica in modo chirurgico solo i filtri della sua specifica categoria
+            if cat_id in dynamic_filters_by_cat:
+                for filter_key, filter_val in dynamic_filters_by_cat[cat_id].items():
+                    attr_real_name = filter_key.replace('metadata.', '')
+                    if attr_real_name in valid_attr_names_for_cat:
+                        cat_sub_query[filter_key] = filter_val
+                        
+            # 2. Applica eventuali filtri globali se validi per questa categoria
+            for filter_key, filter_val in global_dynamic_filters.items():
+                attr_real_name = filter_key.replace('metadata.', '')
+                if attr_real_name in valid_attr_names_for_cat:
+                    cat_sub_query[filter_key] = filter_val
+            
+            or_clauses.append(cat_sub_query)
+            
+        mongo_query = {k: v for k, v in mongo_query.items() if k not in ['category_id', '$or']}
+        mongo_query['$or'] = or_clauses
+
+    elif requested_categories:
+        mongo_query['category_id'] = {'$in': requested_categories}
     
+    elif global_dynamic_filters:
+        for k, v in global_dynamic_filters.items():
+            mongo_query[k] = v
+
+    try:
+        # Estrazione completa degli asset corrispondenti alla query (senza limiti di paginazione per l'export) 
+        assets_list = list(assets_col.find(mongo_query))
+        
+        # Recupero nomi categorie in cache per la colonna descrittiva
+        cat_cache = {str(c['_id']): c.get('name', 'Sconosciuta') for c in categories_col.find()}
+        
+        # Estrazione dinamica delle chiavi dei metadati da tutti gli asset trovati
+        meta_keys = set()
+        for asset in assets_list:
+            meta_keys.update(asset.get('metadata', {}).keys())
+        sorted_meta = sorted(list(meta_keys))
+
+        import io
+        import csv
+        from flask import Response
+        
+        output = io.StringIO()
+        output.write('\ufeff') # BOM per costringere Excel a leggere l'UTF-8
+        
+        # Generazione Header dinamico
+        headers = ['ID Seriale', 'Categoria', 'Campus', 'Latitudine', 'Longitudine', 'Data Creazione'] + [k.replace('_', ' ').title() for k in sorted_meta]
+        writer = csv.writer(output, delimiter=';')
+        writer.writerow(headers)
+
+        # Popolamento Righe
+        for asset in assets_list:
+            cat_name = cat_cache.get(str(asset.get('category_id')), 'Sconosciuta')
+            camp_name = get_cached_campus_name(asset.get('campus_id')) or asset.get('campus_id')
+            coords = asset.get('geometry', {}).get('coordinates', ['', ''])
+            lng = coords[0] if len(coords) > 0 else ''
+            lat = coords[1] if len(coords) > 1 else ''
+            
+            # Troncamento orario, mostriamo solo la data
+            created_at = asset.get('created_at', '')[:10]
+            
+            row = [str(asset.get('_id')), cat_name, camp_name, str(lat), str(lng), created_at]
+            
+            # Popolamento valori attributi dinamici
+            meta = asset.get('metadata', {})
+            for k in sorted_meta:
+                val = meta.get(k, '')
+                if isinstance(val, list):
+                    val = ", ".join(map(str, val))
+                elif isinstance(val, bool):
+                    val = "Sì" if val else "No"
+                row.append(str(val))
+                
+            writer.writerow(row)
+
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment; filename=assets_export.csv"}
+        )
+
+    except Exception as e:
+        return error_response(f"Errore durante l'esportazione CSV: {str(e)}", 500)
 
 # ===================================================================================
 # ENDPOINT: Eliminazione di un Asset esistente (soft delete con tracciamento storico)
@@ -924,11 +1292,20 @@ def delete_asset(asset_id):
         # 3. Eliminazione fisica dalla collezione corrente
         assets_col.delete_one({"_id": ObjectId(asset_id)})
 
+        # INIEZIONE NOMI PER LA TABELLA DEI LOG
+        campus_name = get_cached_campus_name(campus_id)
+        asset_name = extract_asset_name(asset_id)
+        category = categories_col.find_one({"_id": ObjectId(category_id)})
+        category_name = category.get('name', 'Sconosciuta') if category else 'Sconosciuta'
+
         # 4. Tracciabilità asincrona (RabbitMQ)
         publish_event("ASSET_DELETED", {
             "asset_id": asset_id,
+            "asset_name": asset_name,
             "category_id": category_id,
-            "campus_id": campus_id
+            "category_name": category_name,
+            "campus_id": campus_id,
+            "campus_name": campus_name
         })
 
         return jsonify({"message": "Asset eliminato con successo"}), 200
@@ -982,7 +1359,7 @@ def get_asset_history(asset_id):
     except Exception as e:
         return error_response(f"Errore durante il recupero dello storico: {str(e)}", 500)
     
-    
+   
 # ============================================================================
 # CONSUMER ASINCRONO PER PULIZIA DATI ORFANI
 # ============================================================================
@@ -992,15 +1369,32 @@ def process_system_events(ch, method, properties, body):
         payload = json.loads(body.decode('utf-8'))
         action = payload.get("azione")
         
-        if action == "CAMPUS_DELETED":
+        # <-- NUOVO: GESTIONE EVENT-DRIVEN CACHE DEI CAMPUS
+        if action in ["CAMPUS_CREATED", "CAMPUS_UPDATED"]:
+            campus_id = payload.get("campus_id")
+            campus_name = payload.get("campus_name")
+            if campus_id and campus_name:
+                campus_cache_col.update_one(
+                    {"_id": campus_id},
+                    {"$set": {"name": campus_name}},
+                    upsert=True
+                )
+        
+        elif action == "CAMPUS_DELETED":
             campus_id = payload.get("campus_id")
             if campus_id:
+                # 1. Rimuovi dalla cache locale
+                campus_cache_col.delete_one({"_id": campus_id})
+                
+                campus_name = payload.get("campus_name", "Campus Sconosciuto")
+
                 # Troviamo tutti gli asset del campus eliminato
                 assets_to_delete = list(assets_col.find({"campus_id": campus_id}))
                 
                 for asset in assets_to_delete:
                     asset_id = str(asset['_id'])
                     category_id = asset.get('category_id')
+                    metadata = asset.get('metadata', {})
                     
                     # 1. Tracciamento storico (Soft Delete Logico)
                     history_col.insert_one({
@@ -1016,6 +1410,10 @@ def process_system_events(ch, method, properties, body):
                     
                     # 3. Notifica agli altri servizi usando direttamente mq_manager 
                     # (perché siamo in un thread senza contesto di richiesta HTTP)
+                    asset_name = extract_asset_name(asset_id)
+                    category = categories_col.find_one({"_id": ObjectId(category_id)}) if category_id else None
+                    category_name = category.get('name', 'Sconosciuta') if category else 'Sconosciuta'
+                    
                     mq_manager.publish_event(
                         exchange_name='system_events',
                         action='ASSET_DELETED',
@@ -1023,12 +1421,16 @@ def process_system_events(ch, method, properties, body):
                         service_name='asset-service',
                         extra_data={
                             "asset_id": asset_id,
+                            "asset_name": asset_name,
                             "category_id": category_id,
-                            "campus_id": campus_id
+                            "category_name": category_name,
+                            "campus_id": campus_id,
+                            "campus_name": campus_name,
+                            "email": "System Auto"
                         }
                     )
                     
-        # Ack manuale se auto_ack=False
+        # Ack manuale se auto_ack=False 
         if ch.is_open and not getattr(ch, 'auto_ack', True):
             ch.basic_ack(delivery_tag=method.delivery_tag)
             
@@ -1052,7 +1454,8 @@ def start_consumer_thread():
 # ============================================================================
 # ENTRY POINT
 # ============================================================================
+start_consumer_thread()
+
 if __name__ == '__main__':
-    
     start_consumer_thread()
     app.run(host='0.0.0.0', port=5000)

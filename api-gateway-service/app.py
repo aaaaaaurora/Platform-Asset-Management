@@ -1,13 +1,15 @@
 import os
 import jwt
 import requests
+from flask_cors import CORS
 from flask import Flask, request, jsonify, Response
 
 # ============================================================================
-# INIZIALIZZAZIONE E CONFIGURAZIONE
+# INIZIALIZZAZIONE E CONFIGURAZIONE 
 # ============================================================================
-app = Flask(__name__)
 
+app = Flask(__name__)
+CORS(app)
 # Configurazione della chiave segreta per la validazione del JWT
 app.config['JWT_SECRET'] = os.getenv('JWT_SECRET', 'super-secret-key-fallback')
 
@@ -55,8 +57,9 @@ def health_check():
 # SMISTATORE DI TRAFFICO (REVERSE PROXY DINAMICO)
 # ============================================================================
 
-@app.route('/api/<service_name>', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
-@app.route('/api/<service_name>/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH'])
+# <-- 3. Aggiunto il metodo 'OPTIONS' per permettere al proxy di instradarlo se necessario
+@app.route('/api/<service_name>', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
+@app.route('/api/<service_name>/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'])
 def gateway_proxy(service_name, path):
     """
     Punto di ingresso unico: intercetta le chiamate verso /api/<service_name>/<path>,
@@ -79,6 +82,7 @@ def gateway_proxy(service_name, path):
     if token_payload:
         headers['X-User-Id'] = str(token_payload.get('sub'))
         headers['X-User-Role'] = str(token_payload.get('role', ''))
+        headers['X-User-Email'] = str(token_payload.get('email', '')) 
         
         # Estrazione e propagazione dei campus autorizzati (convertiti in stringa separata da virgole)
         campus_ids = token_payload.get('campus_ids', [])
@@ -95,7 +99,7 @@ def gateway_proxy(service_name, path):
             cookies=request.cookies,
             params=request.args,
             allow_redirects=False,
-            timeout=15
+            timeout=60
         )
 
         # Filtraggio degli header di hop-by-hop non instradabili
@@ -112,6 +116,7 @@ def gateway_proxy(service_name, path):
         return jsonify({
             "error": f"Gateway Timeout o Errore di comunicazione con il servizio '{service_name}': {str(e)}"
         }), 502
+
 
 # ============================================================================
 # ENTRY POINT

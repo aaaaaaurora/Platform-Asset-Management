@@ -33,7 +33,7 @@ spec:
             port:
               number: 15672
 
-  # (Opzionale per il futuro) Regola per il Frontend (commentata correttamente)
+  # (Opzionale per il futuro) Regola per il Frontend (commentata correttamente) 
   # - host: frontend.192.168.72.109.nip.io
   #   http:
   #     paths:

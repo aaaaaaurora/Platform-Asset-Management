@@ -3,7 +3,7 @@ import mongomock
 from unittest.mock import patch
 from bson import ObjectId
 import json
-import app as asset_service  # Assumendo che il file principale si chiami app.py
+import app as asset_service  
 
 # ============================================================================
 # FIXTURES E SETUP
@@ -41,7 +41,8 @@ ADMIN_HEADERS = {
 OPERATOR_HEADERS = {
     'X-User-Id': 'op-456',
     'X-User-Role': 'OPERATORE',
-    'X-Campus-Ids': 'campus-A'
+    'X-Campus-Ids': 'campus-A',
+    'X-Client-Type': 'mobile'  # <-- FIX: Aggiunto header mobile obbligatorio per l'operatore
 }
 
 # ============================================================================
@@ -54,10 +55,11 @@ def test_health_check(client):
     assert res.json['status'] == 'healthy'
 
 def test_create_category_admin(client, mock_rabbitmq):
-    payload = {"name": "Veicoli", "description": "Categoria mezzi"}
+    payload = {"name": "Veicoli", "description": "Categoria mezzi", "icon": "🚜"}
     res = client.post('/api/categories', json=payload, headers=ADMIN_HEADERS)
     assert res.status_code == 201
     assert res.json['category']['name'] == "Veicoli"
+    assert res.json['category']['icon'] == "🚜"
     mock_rabbitmq.assert_called_once()
 
 def test_create_category_operator_forbidden(client):
@@ -83,7 +85,7 @@ def test_get_categories(client):
 
 @pytest.fixture
 def base_category(client):
-    res = client.post('/api/categories', json={"name": "Informatica"}, headers=ADMIN_HEADERS)
+    res = client.post('/api/categories', json={"name": "Informatica", "icon": "💻"}, headers=ADMIN_HEADERS)
     return res.json['category']['_id']
 
 def test_add_attribute_success(client, base_category):
@@ -179,7 +181,8 @@ def existing_asset(client, configured_category):
         "geometry": {"type": "Point", "coordinates": [12.0, 42.0]},
         "metadata": {"targa": "AB123CD", "anno": 2020}
     }
-    res = client.post('/api/assets', json=payload, headers=ADMIN_HEADERS)
+    # FIX: Sostituito ADMIN_HEADERS con OPERATOR_HEADERS perché l'admin non può più censire asset
+    res = client.post('/api/assets', json=payload, headers=OPERATOR_HEADERS)
     return res.json['asset']['_id'], configured_category
 
 def test_get_asset_operator(client, existing_asset):
@@ -200,7 +203,7 @@ def test_search_assets_with_dynamic_filters(client, existing_asset):
 def test_update_asset_and_preserve_deprecated_field(client, existing_asset):
     asset_id, cat_id = existing_asset
     
-    # 1. Depreco il campo 'anno' nella categoria
+    # 1. Depreco il campo 'anno' nella categoria (L'admin PUO' farlo)
     client.put(f'/api/categories/{cat_id}/attributes/anno', json={"status": "unavailable"}, headers=ADMIN_HEADERS)
     
     # 2. Aggiorno l'asset inviando solo la targa (l'operatore non vede più 'anno')
@@ -225,7 +228,7 @@ def test_delete_asset_creates_history(client, existing_asset):
     hist_before = client.get(f'/api/assets/{asset_id}/history', headers=ADMIN_HEADERS)
     assert len(hist_before.json['history']) == 1
 
-    # Elimina l'asset
+    # Elimina l'asset (L'admin PUO' eliminare)
     res = client.delete(f'/api/assets/{asset_id}', headers=ADMIN_HEADERS)
     assert res.status_code == 200
 
@@ -239,3 +242,29 @@ def test_delete_asset_creates_history(client, existing_asset):
     assert len(history_list) == 2
     assert history_list[1]['action'] == 'DELETE'
     assert history_list[1]['state_snapshot']['metadata']['targa'] == 'AB123CD'
+    
+    # ============================================================================
+# TEST: ESPORTAZIONE CSV ASSET 
+# ============================================================================
+
+def test_export_assets_csv_admin(client, existing_asset):
+    """Verifica che l'admin possa scaricare il CSV con le colonne dinamiche popolate."""
+    # existig_asset restituisce (asset_id, category_id) dal fixture[cite: 12]
+    res = client.get('/api/assets/export', headers=ADMIN_HEADERS)
+    
+    assert res.status_code == 200
+    assert "text/csv" in res.headers["Content-Type"]
+    assert "attachment" in res.headers["Content-Disposition"]
+    
+    csv_content = res.data.decode('utf-8')
+    # Controlli Strutturali
+    assert "ID Seriale" in csv_content
+    assert "Latitudine" in csv_content
+    # Controlli sui Metadati Dinamici generati dall'asset fittizio
+    assert "Targa" in csv_content 
+    assert "AB123CD" in csv_content
+
+def test_export_assets_csv_operator_forbidden(client):
+    """Verifica il blocco di sicurezza in caso di richiesta da operatore."""
+    res = client.get('/api/assets/export', headers=OPERATOR_HEADERS)
+    assert res.status_code == 403

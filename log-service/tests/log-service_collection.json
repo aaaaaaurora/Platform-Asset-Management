@@ -375,6 +375,10 @@
 							{
 								"key": "X-User-Role",
 								"value": "AMMINISTRATORE"
+							},
+							{
+								"key": "X-Campus-Ids",
+								"value": "campus-uuid-123"
 							}
 						],
 						"url": {
@@ -392,7 +396,7 @@
 					"response": []
 				},
 				{
-					"name": "Get Dashboard Charts (Time-Series & Dynamic)",
+					"name": "Get Dashboard Charts (Time-Series)",
 					"event": [
 						{
 							"listen": "test",
@@ -401,10 +405,9 @@
 									"pm.test(\"Status code is 200\", function () {",
 									"    pm.response.to.have.status(200);",
 									"});",
-									"pm.test(\"Response contains time_series and dynamic_distribution\", function () {",
+									"pm.test(\"Response contains time_series\", function () {",
 									"    var jsonData = pm.response.json();",
 									"    pm.expect(jsonData).to.have.property('time_series');",
-									"    pm.expect(jsonData).to.have.property('dynamic_distribution');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -417,10 +420,14 @@
 							{
 								"key": "X-User-Role",
 								"value": "AMMINISTRATORE"
+							},
+							{
+								"key": "X-Campus-Ids",
+								"value": "campus-uuid-123"
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/dashboard/charts?dynamic_attribute=status",
+							"raw": "{{base_url}}/api/dashboard/charts",
 							"host": [
 								"{{base_url}}"
 							],
@@ -428,12 +435,6 @@
 								"api",
 								"dashboard",
 								"charts"
-							],
-							"query": [
-								{
-									"key": "dynamic_attribute",
-									"value": "status"
-								}
 							]
 						}
 					},

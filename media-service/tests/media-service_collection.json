@@ -154,18 +154,18 @@
       "response": []
     },
     {
-      "name": "4. Get Image Preview (Redirect to MinIO)",
+      "name": "4. Get Image Preview (Direct Stream)",
       "event": [
         {
           "listen": "test",
           "script": {
             "exec": [
-              "pm.test(\"Status code is 302 (Redirect)\", function () {",
-              "    pm.response.to.have.status(302);",
+              "pm.test(\"Status code is 200 (OK)\", function () {",
+              "    pm.response.to.have.status(200);",
               "});",
               "",
-              "pm.test(\"Presente l'header Location con il presigned url\", function () {",
-              "    pm.expect(pm.response.headers.has(\"Location\")).to.be.true;",
+              "pm.test(\"Content-Type è image/jpeg\", function () {",
+              "    pm.response.to.have.header(\"Content-Type\", \"image/jpeg\");",
               "});"
             ],
             "type": "text/javascript",
@@ -174,9 +174,6 @@
           }
         }
       ],
-      "protocolProfileBehavior": {
-        "followRedirects": false
-      },
       "request": {
         "method": "GET",
         "header": [],

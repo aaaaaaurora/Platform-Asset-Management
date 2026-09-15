@@ -10,7 +10,7 @@ spec:
   resources:
     requests:
       storage: 5Gi
-
+ 
 ---
 # --- 2. IL DATABASE (DEPLOYMENT) ---
 apiVersion: apps/v1
@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
       - name: mongodb
-        image: mongo:6.0
+        image: mongo:4.4
         ports:
         - containerPort: 27017
         

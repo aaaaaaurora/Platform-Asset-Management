@@ -10,7 +10,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Installa le librerie
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copia tutto il codice sorgente
 COPY . .

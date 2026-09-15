@@ -1,23 +1,20 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router";
-import SignIn from "./pages/AuthPages/SignIn";
-import SignUp from "./pages/AuthPages/SignUp";
-import NotFound from "./pages/OtherPage/NotFound";
-import UserProfiles from "./pages/UserProfiles";
-import Videos from "./pages/UiElements/Videos";
-import Images from "./pages/UiElements/Images";
-import Alerts from "./pages/UiElements/Alerts";
-import Badges from "./pages/UiElements/Badges";
-import Avatars from "./pages/UiElements/Avatars";
-import Buttons from "./pages/UiElements/Buttons";
-import LineChart from "./pages/Charts/LineChart";
-import BarChart from "./pages/Charts/BarChart";
-import Calendar from "./pages/Calendar";
-import BasicTables from "./pages/Tables/BasicTables";
-import FormElements from "./pages/Forms/FormElements";
-import Blank from "./pages/Blank";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
 import { ScrollToTop } from "./components/common/ScrollToTop";
-import Home from "./pages/Dashboard/Home";
+import CampusMap from "./pages/Dashboard/CampusMap";
+import Home from "./pages/Dashboard/Home"; 
+import OperatorsManagement from "./pages/Admin/OperatorsManagement"; 
+import CategoriesManagement from "./pages/Admin/CategoriesManagement";
+import CategoryEditor from "./pages/Admin/CategoryManager";
+import SystemLogs from "./pages/Admin/SystemLogs";
+import NewCampus from './pages/Admin/CreateCampus';
+import CampusList from './pages/Admin/CampusList';
+
+import ProtectedRoute from "./components/auth/ProtectedRoute";
+import SignIn from "./pages/AuthPages/SignIn";
+import CreateAsset from './pages/AssetPages/CreateAsset';
+import TicketSegnalazioni from './pages/WarningPages/TicketSegnalazioni';
+import AssetList from './pages/AssetPages/AssetList';
 
 export default function App() {
   return (
@@ -25,40 +22,59 @@ export default function App() {
       <Router>
         <ScrollToTop />
         <Routes>
-          {/* Dashboard Layout */}
-          <Route element={<AppLayout />}>
-            <Route index path="/" element={<Home />} />
+          <Route path="/signin" element={<SignIn />} />
 
-            {/* Others Page */}
-            <Route path="/profile" element={<UserProfiles />} />
-            <Route path="/calendar" element={<Calendar />} />
-            <Route path="/blank" element={<Blank />} />
-
-            {/* Forms */}
-            <Route path="/form-elements" element={<FormElements />} />
-
-            {/* Tables */}
-            <Route path="/basic-tables" element={<BasicTables />} />
-
-            {/* Ui Elements */}
-            <Route path="/alerts" element={<Alerts />} />
-            <Route path="/avatars" element={<Avatars />} />
-            <Route path="/badge" element={<Badges />} />
-            <Route path="/buttons" element={<Buttons />} />
-            <Route path="/images" element={<Images />} />
-            <Route path="/videos" element={<Videos />} />
-
-            {/* Charts */}
-            <Route path="/line-chart" element={<LineChart />} />
-            <Route path="/bar-chart" element={<BarChart />} />
+          
+          {/* ========================================== */}
+          {/* ROTTE PROTETTE - BASE (Tutti gli autenticati)  */}
+          {/* ========================================== */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AppLayout />}>
+              <Route path="/map" element={<CampusMap />} />
+            </Route>
           </Route>
 
-          {/* Auth Layout */}
-          <Route path="/signin" element={<SignIn />} />
-          <Route path="/signup" element={<SignUp />} />
+          {/* ========================================== */}
+          {/* ROTTE AMMINISTRATORE                       */}
+          {/* ========================================== */}
+          <Route element={<ProtectedRoute allowedRoles={['AMMINISTRATORE']} />}>
+            <Route element={<AppLayout />}>
+              <Route path="/dashboard" element={<Home />} />
+              <Route path="/admin/operators" element={<OperatorsManagement />} />
+              <Route path="/admin/categories" element={<CategoriesManagement />} />
+              {/* <-- AGGIUNTE LE NUOVE ROTTE PER L'EDITOR CATEGORIE --> */}
+              <Route path="/admin/categories/new" element={<CategoryEditor />} />
+              <Route path="/admin/categories/:id" element={<CategoryEditor />} />
+              <Route path="/admin/history" element={<SystemLogs />} />
+              <Route path="/admin/campus/new" element={<NewCampus />} />
+              <Route path="/admin/campuses" element={<CampusList />} />
+            </Route>
+          </Route>
 
-          {/* Fallback Route */}
-          <Route path="*" element={<NotFound />} />
+          {/* ========================================== */}
+          {/* ROTTE OPERATORE                            */}
+          {/* ========================================== */}
+          <Route element={<ProtectedRoute allowedRoles={['OPERATORE']} />}>
+            <Route element={<AppLayout />}>
+              <Route path="/assets/new" element={<CreateAsset />} />
+              <Route path="/operator/tickets" element={<TicketSegnalazioni />} />
+            </Route>
+          </Route>
+
+          {/* ========================================== */}
+          {/* ROTTE CONDIVISE (Admin + Operatore)        */}
+          {/* ========================================== */}
+          <Route element={<ProtectedRoute allowedRoles={['AMMINISTRATORE', 'OPERATORE']} />}>
+            <Route element={<AppLayout />}>
+              <Route path="/assets/list" element={<AssetList />} />
+            </Route>
+          </Route>
+
+          {/* ========================================== */}
+          {/* ROTTE UTENTE E GUEST (Studenti/Docenti)    */}
+          {/* ========================================== */}
+          <Route element={<ProtectedRoute allowedRoles={['UTENTE', 'GUEST']} />}>
+          </Route>
         </Routes>
       </Router>
     </>

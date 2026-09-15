@@ -86,21 +86,30 @@ def test_health_check(client):
     assert response.status_code == 200
     assert response.json['status'] == 'healthy'
 
-def test_auth_google_success(client, mock_google_verify):
+@patch('app.verify_google_token')
+def test_auth_google_success(mock_verify, client):
     """
-    Verifica il login con Google e l'Auto-Provisioning di un utente GUEST.
+    Verifica il login con Google (FASE 1: generazione temp_token senza toccare il DB)
     """
+    mock_verify.return_value = {
+        "sub": "1234567890_test_user",
+        "email": "mario.rossi@studenti.unisa.it",
+        "given_name": "Mario",
+        "family_name": "Rossi"
+    }
+
     payload = {"google_id_token": "dummy_google_token"}
     response = client.post('/auth/google', json=payload)
     
     assert response.status_code == 200
     assert 'temp_token' in response.json
+    assert 'totp_uri' in response.json  # Verifica che venga restituito l'URI per il QR code
     assert response.json['user']['email'] == "mario.rossi@studenti.unisa.it"
     
-    # Verifica che l'utente sia stato creato nel DB
+    # LA MODIFICA CHIAVE: Verifica che l'utente NON sia ancora stato creato nel DB
     user = AppUser.query.filter_by(email="mario.rossi@studenti.unisa.it").first()
-    assert user is not None
-    assert user.role_id is not None
+    assert user is None
+
 
 def test_auth_google_missing_token(client):
     """Verifica la gestione dell'errore se manca il token nel payload."""
@@ -108,25 +117,24 @@ def test_auth_google_missing_token(client):
     assert response.status_code == 400
     assert "Token mancante" in response.json['error']
 
+
 @patch('app.pyotp.TOTP.verify')
-def test_verify_2fa_success(mock_totp_verify, client):
+def test_verify_2fa_existing_user_success(mock_totp_verify, client):
     """
-    Verifica che fornendo un codice TOTP valido venga rilasciato il JWT definitivo.
+    Verifica il login per un UTENTE ESISTENTE tramite 2FA.
     """
-    # 1. Preparazione utente mock nel DB
+    # Preparazione utente mock nel DB
     role = Role.query.filter_by(name=RoleType.GUEST).first()
-    user = AppUser(email="test@2fa.com", role_id=role.id, totp_secret="TESTSECRET")
+    user = AppUser(email="esistente@studenti.unisa.it", role_id=role.id, totp_secret="TESTSECRET")
     db.session.add(user)
     db.session.commit()
     
-    # 2. Generazione manuale del temp_token
+    # Generazione manuale del temp_token
     temp_payload = {"user_id": str(user.id), "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)}
     temp_token = jwt.encode(temp_payload, app.config['JWT_SECRET'], algorithm="HS256")
     
-    # Forziamo il mock del TOTP a restituire True (codice corretto)
     mock_totp_verify.return_value = True
     
-    # 3. Esecuzione richiesta
     response = client.post('/auth/2fa/verify', json={
         "temp_token": temp_token,
         "totp_code": "123456"
@@ -134,7 +142,41 @@ def test_verify_2fa_success(mock_totp_verify, client):
     
     assert response.status_code == 200
     assert 'token' in response.json
-    assert response.json['role'] == "GUEST"
+
+
+@patch('app.pyotp.TOTP.verify')
+def test_verify_2fa_new_user_success(mock_totp_verify, client):
+    """
+    Verifica l'Auto-Provisioning (creazione nel DB) di un NUOVO UTENTE 
+    dopo aver validato il TOTP con successo.
+    """
+    # Simuliamo il token temporaneo che /auth/google avrebbe passato al frontend per un nuovo utente
+    temp_payload = {
+        "is_new_user": True,
+        "email": "nuovo.utente@studenti.unisa.it",
+        "google_id": "google_123",
+        "first_name": "Nuovo",
+        "last_name": "Utente",
+        "totp_secret": "NEWSECRET",
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
+    }
+    temp_token = jwt.encode(temp_payload, app.config['JWT_SECRET'], algorithm="HS256")
+    
+    # Forziamo il mock del TOTP a restituire True (l'utente ha inserito il codice giusto)
+    mock_totp_verify.return_value = True
+    
+    response = client.post('/auth/2fa/verify', json={
+        "temp_token": temp_token,
+        "totp_code": "123456"
+    })
+    
+    assert response.status_code == 200
+    assert 'token' in response.json
+    
+    # ORA verifichiamo che l'utente sia stato effettivamente salvato nel DB!
+    user = AppUser.query.filter_by(email="nuovo.utente@studenti.unisa.it").first()
+    assert user is not None
+    assert user.role_id is not None
 
 def test_create_operator_success(client):
     """Verifica che un admin possa creare un nuovo operatore."""
@@ -193,22 +235,26 @@ def test_update_operator_success(client):
     assert str(link.campus_id) == new_campus_id
 
 def test_get_operators(client):
-    """Verifica il recupero della lista degli operatori."""
-    # Creazione di due operatori di test
+    """Verifica il recupero della lista degli operatori simulando un admin."""
+    # 1. Creiamo un Amministratore di test per superare il controllo di sicurezza
+    admin_role = Role.query.filter_by(name=RoleType.AMMINISTRATORE).first()
+    admin = AppUser(email="admin_test@campus.it", role_id=admin_role.id, first_name="Admin", last_name="Test")
+    
+    # 2. Creiamo i due Operatori standard
     role = Role.query.filter_by(name=RoleType.OPERATORE).first()
     op1 = AppUser(email="op1@campus.it", role_id=role.id, first_name="A", last_name="B")
     op2 = AppUser(email="op2@campus.it", role_id=role.id, first_name="C", last_name="D")
-    db.session.add_all([op1, op2])
+    
+    db.session.add_all([admin, op1, op2])
     db.session.commit()
-    
-    response = client.get('/admin/operators')
-    
+
+    # 3. Effettuiamo la chiamata includendo l'header obbligatorio X-User-Id
+    headers = {'X-User-Id': str(admin.id)}
+    response = client.get('/admin/operators', headers=headers)
+
     assert response.status_code == 200
-    assert isinstance(response.json, list)
-    assert len(response.json) >= 2
     
-    # Verifichiamo che i dati siano serializzati correttamente
-    emails = [op['email'] for op in response.json]
-    assert "op1@campus.it" in emails
-    assert "op2@campus.it" in emails
+    # Verifica aggiuntiva per assicurarsi che il payload non sia vuoto
+    data = response.get_json()
+    assert len(data) >= 2
     

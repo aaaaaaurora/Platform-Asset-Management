@@ -8,13 +8,13 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID
 import threading
-
-# Import della libreria centralizzata per RabbitMQ
+from google.auth.transport import requests
+import logging
+import requests
 from shared_utils.messaging import RabbitMQManager
-
-# Nuovi import necessari per la validazione reale del token Google
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
+import requests
 
 # ============================================================================
 # INIZIALIZZAZIONE E CONFIGURAZIONE
@@ -29,7 +29,7 @@ app.config['JWT_SECRET'] = os.getenv('JWT_SECRET', 'super-secret-key-fallback')
 RABBITMQ_URL = os.getenv('RABBITMQ_URL', 'amqp://guest:guest@rabbitmq-service:5672/')
 TOTP_ISSUER_NAME = os.getenv('TOTP_ISSUER_NAME', 'Campus_Management')
 # Aggiunta Client ID di Google
-GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', 'il-tuo-client-id-google.apps.googleusercontent.com')
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '644506126338-fvtr7mf0jpa9dusa58g8ilt0e9d2ftsr.apps.googleusercontent.com')
 
 db = SQLAlchemy(app)
 
@@ -75,36 +75,76 @@ class UserCategory(db.Model):
     user_id = db.Column(UUID(as_uuid=True), db.ForeignKey('app_user.id'), primary_key=True)
     category_id = db.Column(db.String(24), primary_key=True) # Soft link all'Asset Service
 
-
 # ============================================================================
 # FUNZIONI DI UTILITA'
 # ============================================================================
 
 def verify_google_token(token):
-    """
-    Validazione REALE del token OAuth tramite le API di Google.
+    """ 
+    Validazione unificata: gestisce sia l'id_token (App Mobile/Capacitor) 
+    sia l'access_token (Web App/React).
     """
     if not token or token == "invalid":
         return None
         
-    try:
-        # Verifica crittografica della firma di Google e dell'audience (Client ID)
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
-        return idinfo
-    except ValueError:
-        # Token non valido, scaduto o audience non corrispondente
-        return None
+    # Un id_token (JWT) è sempre composto da 3 parti separate da punti.
+    is_jwt = len(token.split('.')) == 3
+ 
+    if is_jwt:
+        # 1. FLUSSO MOBILE: Validazione id_token 
+        try:
+            idinfo = id_token.verify_oauth2_token(
+                token, 
+                google_requests.Request(), 
+                app.config.get('GOOGLE_CLIENT_ID', GOOGLE_CLIENT_ID),
+                clock_skew_in_seconds=10 
+            )
+            # Verifica opzionale dell'audience (Client ID Android)
+            if idinfo['aud'] not in [GOOGLE_CLIENT_ID, 'INSERISCI_QUI_IL_TUO_CLIENT_ID_ANDROID']:
+                print("Audience non riconosciuta.", flush=True)
+                return None
+            return idinfo
+        except ValueError as e:
+            print(f"Errore validazione id_token mobile: {e}", flush=True)
+            return None
+    else:
+        # 2. FLUSSO WEB: Validazione access_token
+        try:
+            google_api_url = f"https://www.googleapis.com/oauth2/v3/userinfo?access_token={token}"
+            response = requests.get(google_api_url)
+            
+            if response.status_code != 200:
+                print(f"ERRORE GOOGLE API (WEB): {response.text}", flush=True)
+                return None
+                
+            return response.json()
+        except Exception as e:
+            print(f"ERRORE CRITICO VERIFICA TOKEN WEB: {e}", flush=True)
+            return None
 
-def publish_audit_event(action, actor_id):
+def publish_audit_event(action, actor_id, extra_data=None):
     """
-    Pubblica un evento asincrono sul Message Broker (RabbitMQ) sfruttando 
-    la libreria centralizzata 'shared_utils'.
+    Pubblica un evento asincrono sul Message Broker (RabbitMQ).
+    Arricchisce automaticamente l'evento con l'email prelevandola dal DB.
     """
+    if extra_data is None:
+        extra_data = {}
+        
+    if actor_id:
+        try:
+            # Recuperiamo l'utente dal database in modo efficiente
+            user = db.session.get(AppUser, actor_id)
+            if user and user.email:
+                extra_data['email'] = user.email
+        except Exception as e:
+            print(f"Errore recupero email per audit log: {e}", flush=True)
+
     mq_manager.publish_event(
         exchange_name='system_events',
         action=action,
-        actor_id=actor_id,
-        service_name='auth-service'
+        actor_id=str(actor_id) if actor_id else None,
+        service_name='auth-service',
+        extra_data=extra_data if extra_data else None
     )
 
 def error_response(message, status_code):
@@ -149,50 +189,81 @@ def auth_google():
     # Ricerca dell'utente nel database tramite email
     user = AppUser.query.filter_by(email=email).first()
 
-    # Logica di Auto-Provisioning (solo per Utente Base)
     if not user:
-        guest_role = Role.query.filter_by(name=RoleType.GUEST).first()
-        if not guest_role:
-            return error_response("Configurazione di sistema mancante: Ruolo di base non trovato", 500)
-            
-        user = AppUser(
-            email=email,
-            google_id=google_user_info.get('sub'),
-            first_name=google_user_info.get('given_name'),
-            last_name=google_user_info.get('family_name'),
-            role_id=guest_role.id,
-            totp_secret=pyotp.random_base32()  # Predisposizione segreto 2FA
-        )
-        db.session.add(user)
-        db.session.commit()
+        # NON salviamo nel DB! Generiamo il segreto e impacchettiamo tutto nel token temporaneo.
+        totp_secret = pyotp.random_base32()
         
-        publish_audit_event("AUTO_PROVISIONING_GUEST", user.id)
+        temp_payload = {
+            "is_new_user": True,
+            "email": email,
+            "google_id": google_user_info.get('sub'),
+            "first_name": google_user_info.get('given_name'),
+            "last_name": google_user_info.get('family_name'),
+            "totp_secret": totp_secret,
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=10) # 10 minuti per dare tempo di scansionare il QR
+        }
+        temp_token = jwt.encode(temp_payload, app.config['JWT_SECRET'], algorithm="HS256")
+        
+        # Generiamo il link per il QR Code
+        totp = pyotp.TOTP(totp_secret)
+        totp_uri = totp.provisioning_uri(name=email, issuer_name="Asset Management Unisa")
+
+        return jsonify({
+            "temp_token": temp_token,
+            "totp_uri": totp_uri, # Passiamo il link al frontend
+            "user": {
+                "email": email,
+                "name": f"{google_user_info.get('given_name')} {google_user_info.get('family_name')}"
+            }
+        }), 200
+
     else:
+        # --- UTENTE ESISTENTE (Es. Operatore pre-registrato dall'Admin) ---
+        is_first_login = False
+        
+        # Se non ha il google_id, è il suo primissimo accesso!
         if not user.google_id:
+            is_first_login = True
             user.google_id = google_user_info.get('sub')
+            
+            # Salviamo Nome e Cognome estratti da Google
+            user.first_name = google_user_info.get('given_name', '')
+            user.last_name = google_user_info.get('family_name', '')
             db.session.commit()
     
-    if not user.is_active:
-        publish_audit_event("DISABLED_ACCOUNT_LOGIN_ATTEMPT", user.id)
-        return error_response("Account disabilitato", 403)
+        if not user.is_active:
+            publish_audit_event("DISABLED_ACCOUNT_LOGIN_ATTEMPT", user.id)
+            return error_response("Account disabilitato", 403)
 
-    # Generazione Token Temporaneo in attesa della 2FA
-    temp_payload = {
-        "user_id": str(user.id),
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
-    }
-    temp_token = jwt.encode(temp_payload, app.config['JWT_SECRET'], algorithm="HS256")
-
-    publish_audit_event("GOOGLE_LOGIN_SUCCESS", user.id)
-
-    return jsonify({
-        "temp_token": temp_token,
-        "user": {
-            "email": user.email,
-            "name": f"{user.first_name} {user.last_name}"
+        # Generazione Token Temporaneo standard
+        temp_payload = {
+            "user_id": str(user.id),
+            "exp": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
         }
-    }), 200
+        temp_token = jwt.encode(temp_payload, app.config['JWT_SECRET'], algorithm="HS256")
 
+        publish_audit_event("GOOGLE_LOGIN_SUCCESS", user.id)
+
+        # Costruiamo la risposta base
+        response_data = {
+            "temp_token": temp_token,
+            "user": {
+                "email": user.email,
+                "name": f"{user.first_name or ''} {user.last_name or ''}".strip()
+            }
+        }
+
+        # Se è il primissimo accesso, inviamo il totp_uri per stampare il QR Code sul frontend
+        if is_first_login and user.totp_secret:
+            totp = pyotp.TOTP(user.totp_secret)
+            response_data["totp_uri"] = totp.provisioning_uri(name=user.email, issuer_name="Asset Management Unisa")
+
+        return jsonify(response_data), 200
+
+
+# ============================================================================
+# ENDPOINT: Verifica 2FA e Generazione JWT Definitivo 
+# ============================================================================
 
 @app.route('/auth/2fa/verify', methods=['POST'])
 def verify_2fa():
@@ -213,27 +284,60 @@ def verify_2fa():
     # Validazione del Token Temporaneo
     try:
         decoded_temp = jwt.decode(temp_token, app.config['JWT_SECRET'], algorithms=["HS256"])
-        user_id = decoded_temp['user_id']
     except jwt.ExpiredSignatureError:
         return error_response("EXPIRED_CODE", 401)
     except jwt.InvalidTokenError:
         return error_response("INVALID_CODE", 401)
 
-    user = db.session.get(AppUser, user_id)
-    if not user:
-        return error_response("Utente non trovato", 404)
+    # Capiamo se stiamo validando un utente nuovo o uno esistente
+    is_new_user = decoded_temp.get('is_new_user', False)
+
+    if is_new_user:
         
-    if not user.is_active:
-        publish_audit_event("DISABLED_ACCOUNT_2FA_ATTEMPT", user.id)
-        return error_response("Account disabilitato", 403)
+        totp_secret = decoded_temp.get('totp_secret')
+        totp = pyotp.TOTP(totp_secret)
+        
+        # Validazione del codice prima di toccare il DB
+        if not totp.verify(totp_code, valid_window=0):
+            return error_response("INVALID_CODE", 401)
+            
+        # 1. Il codice è corretto! Ora possiamo creare l'utente nel Database
+        guest_role = Role.query.filter_by(name=RoleType.GUEST).first()
+        if not guest_role:
+            return error_response("Configurazione di sistema mancante: Ruolo di base non trovato", 500)
+            
+        user = AppUser(
+            email=decoded_temp.get('email'),
+            google_id=decoded_temp.get('google_id'),
+            first_name=decoded_temp.get('first_name'),
+            last_name=decoded_temp.get('last_name'),
+            role_id=guest_role.id,
+            totp_secret=totp_secret
+        )
+        db.session.add(user)
+        db.session.commit()
+        
+        publish_audit_event("AUTO_PROVISIONING_GUEST", user.id)
 
-    # Validazione del Codice TOTP
-    totp = pyotp.TOTP(user.totp_secret)
-    if not totp.verify(totp_code):
-        publish_audit_event("2FA_FAILED", user.id)
-        return error_response("INVALID_CODE", 401)
+    else:
+        # --- FLUSSO UTENTE ESISTENTE ---
+        user_id = decoded_temp.get('user_id')
+        user = db.session.get(AppUser, user_id)
+        
+        if not user:
+            return error_response("Utente non trovato", 404)
+            
+        if not user.is_active:
+            publish_audit_event("DISABLED_ACCOUNT_2FA_ATTEMPT", user.id)
+            return error_response("Account disabilitato", 403)
 
-    # Denormalizzazione e Costruzione Payload JWT
+        # Validazione del Codice TOTP
+        totp = pyotp.TOTP(user.totp_secret)
+        if not totp.verify(totp_code):
+            publish_audit_event("2FA_FAILED", user.id)
+            return error_response("INVALID_CODE", 401)
+
+    # --- CODICE IN COMUNE: Denormalizzazione e Costruzione Payload JWT ---
     role = db.session.get(Role, user.role_id)
     
     campus_links = UserCampus.query.filter_by(user_id=user.id).all()
@@ -247,7 +351,9 @@ def verify_2fa():
         "role": role.name.value,  # Estrae la stringa dall'Enum
         "campus_ids": campus_ids,
         "category_id": category_id,
-        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=8)
+        "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=8),
+        "first_name": user.first_name,
+        "email": user.email       
     }
 
     final_token = jwt.encode(jwt_payload, app.config['JWT_SECRET'], algorithm="HS256")
@@ -259,7 +365,7 @@ def verify_2fa():
         "campus_ids": campus_ids,
         "category_id": category_id
     }), 200
-      
+ 
 # ===============================================================================
 # ENDPOINT per la creazione di un nuovo profilo Operatore (Amministratore)
 # ===============================================================================  
@@ -324,7 +430,13 @@ def create_operator():
         
         # Recupera l'ID dell'admin dagli header passati dal Gateway
         admin_id = request.headers.get('X-User-Id')
-        publish_audit_event("CREATE_OPERATOR_PROFILE", admin_id)
+        
+        # Inietta l'email dell'operatore creato nel log affinché compaia nella colonna "Entità"
+        publish_audit_event(
+            "CREATE_OPERATOR_PROFILE", 
+            admin_id,
+            extra_data={"entity_name": email} 
+        )
         
         return jsonify({
             "status": "created",
@@ -385,9 +497,15 @@ def update_operator(user_id):
         # 5. Consolidamento transazione
         db.session.commit()
         
-        # 6. Tracciabilità
+        # 6. Tracciabilità 
         admin_id = request.headers.get('X-User-Id')
-        publish_audit_event("UPDATE_OPERATOR_PROFILE", admin_id)
+        
+        # Inietta l'email dell'operatore aggiornato nel log affinché compaia nella colonna "Entità"
+        publish_audit_event(
+            "UPDATE_OPERATOR_PROFILE", 
+            admin_id,
+            extra_data={"entity_name": user.email}
+        )
 
         return jsonify({"status": "updated"}), 200
 
@@ -430,6 +548,44 @@ def get_operators():
         })
         
     return jsonify(result), 200
+
+from flask import request, jsonify
+import uuid
+
+# ==========================================
+# ENDPOINT: Profilo Utente Loggato
+# ==========================================
+@app.route('/me', methods=['GET'])
+def get_current_user():
+    """
+    Restituisce i dati anagrafici dell'utente attualmente autenticato.
+    Legge gli header iniettati in modo sicuro dall'API Gateway.
+    """
+    # Leggiamo gli header direttamente dalla request
+    user_id_str = request.headers.get('X-User-Id')
+    user_role = request.headers.get('X-User-Role')
+
+    if not user_id_str:
+        return jsonify({"error": "Utente non autenticato o header mancanti dal Gateway"}), 401
+
+    try:
+        user_uuid = uuid.UUID(user_id_str)
+    except ValueError:
+        return jsonify({"error": "Formato ID utente non valido"}), 400
+
+    # Interroga la tabella app_user (assicurati che il modello si chiami AppUser o User a seconda della tua implementazione)
+    user = db.session.get(AppUser, user_uuid)
+    
+    if not user:
+        return jsonify({"error": "Utente non trovato nel database"}), 404
+
+    return jsonify({
+        "id": str(user.id),
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "role": user_role
+    }), 200
 
 # ============================================================================
 # CONSUMER ASINCRONO INTEGRATO CON LA CLASSE CENTRALIZZATA
@@ -483,10 +639,10 @@ def start_consumer_thread():
     )
     thread.start()
 
-
 # ============================================================================
 # ENTRY POINT
 # ============================================================================
+start_consumer_thread()
 
 if __name__ == '__main__':
     # Avvia il processo in background per ascoltare gli eventi RabbitMQ 

@@ -6,7 +6,7 @@ import time
 from flask import Flask, jsonify, request
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.sql import func
+from sqlalchemy import func, case, or_
 from sqlalchemy.exc import SQLAlchemyError
 from marshmallow import Schema, fields, INCLUDE, ValidationError
 import csv
@@ -21,7 +21,6 @@ from shared_utils.messaging import RabbitMQManager
 # 1. CONFIGURAZIONE E SETUP
 # ============================================================================
 
-# Configurazione del Logging Strutturato
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
@@ -30,12 +29,10 @@ logger = logging.getLogger('log-service')
 
 app = Flask(__name__)
 
-# Configurazione PostgreSQL compatibile con Kubernetes e ambiente locale
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5433/log_db')
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Ottimizzazioni per il pool di connessioni
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     "pool_pre_ping": True,
     "pool_recycle": 300,
@@ -44,15 +41,12 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 db = SQLAlchemy(app)
 mq_manager = RabbitMQManager()
 
+
 # ============================================================================
 # 2. UTILITY FUNCTIONS E MIDDLEWARE
 # ============================================================================
 
 def get_auth_context():
-    """
-    Estrae le informazioni di sicurezza propagate dall'API Gateway.
-    Il Log Service è passivo e si fida ciecamente di questi header.
-    """
     campuses_header = request.headers.get('X-Campus-Ids', '')
     campus_ids = [c.strip() for c in campuses_header.split(',')] if campuses_header else []
     
@@ -65,15 +59,12 @@ def get_auth_context():
 def error_response(message, status_code):
     return jsonify({"error": message}), status_code
 
+
 # ============================================================================
 # 3. MODELLI DATABASE (Append-Only)
 # ============================================================================
 
 class AuditLog(db.Model):
-    """
-    Modello per la tabella audit_log. 
-    Design Append-Only: I record sono eventi storici immutabili. Nessun UPDATE o DELETE.
-    """
     __tablename__ = 'audit_log'
 
     id = db.Column(UUID(as_uuid=True), primary_key=True, server_default=db.text('gen_random_uuid()'))
@@ -82,10 +73,7 @@ class AuditLog(db.Model):
     action = db.Column(db.String(100), nullable=False, index=True)
     actor_id = db.Column(UUID(as_uuid=True), nullable=True, index=True)
     entity_id = db.Column(db.String(100), nullable=True, index=True) 
-    
-    # JSONB essenziale per query complesse, filtri e dashboard flessibili
     payload = db.Column(JSONB, nullable=False)
-    
     created_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), index=True)
 
     def to_dict(self):
@@ -100,28 +88,20 @@ class AuditLog(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
+
 # ============================================================================
 # 4. DTO (Data Transfer Objects)
 # ============================================================================
 
 class EventPayloadSchema(Schema):
-    """
-    Schema di validazione (Marshmallow) per i messaggi in arrivo da RabbitMQ.
-    Mappa e valida i campi generati dalla classe condivisa RabbitMQManager.
-    """
     class Meta:
-        # INCLUDE permette di accettare campi extra non dichiarati, 
-        # che andranno a popolare liberamente il nostro JSONB
         unknown = INCLUDE
 
     service_name = fields.String(required=True)
     azione = fields.String(required=True)
-    
-    # UUIDs che potrebbero essere stringhe vuote o null se l'evento è di sistema
     autore_id = fields.UUID(allow_none=True, load_default=None)
     correlation_id = fields.UUID(allow_none=True, load_default=None)
     entity_id = fields.String(allow_none=True, load_default=None) 
-    
     timestamp = fields.String(allow_none=True)
 
 
@@ -130,27 +110,24 @@ class EventPayloadSchema(Schema):
 # ============================================================================
 
 class AuditLogRepository:
-    """
-    Gestisce l'accesso al database per la tabella audit_log.
-    Design Append-Only per le scritture, con metodi avanzati per le letture.
-    """
     
     @staticmethod
     def insert(log_entry: AuditLog) -> AuditLog:
-        """Salva un nuovo evento nel database in modo transazionale."""
         try:
             db.session.add(log_entry)
             db.session.commit()
             return log_entry
         except SQLAlchemyError as e:
             db.session.rollback()
-            logger.error(f"Errore DB durante l'inserimento dell'audit log: {str(e)}")
+            logger.error(f"Errore DB durante l'inserimento: {str(e)}")
             raise e
 
     @staticmethod
     def _build_filter_query(filters: dict):
-        """Metodo di utilità interno per applicare i filtri dinamici alla query base."""
         query = db.session.query(AuditLog)
+
+        # 1. Filtro globale: Escludi sempre i log dei media
+        query = query.filter(AuditLog.service_name != 'media-service')
 
         if filters.get('service_name'):
             query = query.filter(AuditLog.service_name == filters['service_name'])
@@ -160,72 +137,101 @@ class AuditLogRepository:
             query = query.filter(AuditLog.actor_id == filters['actor_id'])
         if filters.get('entity_id'):
             query = query.filter(AuditLog.entity_id == filters['entity_id'])
-
         if filters.get('start_date'):
             query = query.filter(AuditLog.created_at >= filters['start_date'])
         if filters.get('end_date'):
             query = query.filter(AuditLog.created_at <= filters['end_date'])
 
-        campus_ids = filters.get('campus_ids')
-        if campus_ids:
-            query = query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
+        log_type = filters.get('log_type')
+
+        if log_type == 'system':
+            # Log di sistema: solo auth-service, nessun filtro campus/categoria applicato
+            query = query.filter(AuditLog.service_name == 'auth-service')
+        elif log_type == 'business':
+            # Log operativi: escludi auth-service, applica filtri territoriali/categoria rigorosi
+            query = query.filter(AuditLog.service_name != 'auth-service')
+            
+            campus_ids = filters.get('campus_ids')
+            if campus_ids:
+                query = query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
+                
+            category_ids = filters.get('category_ids')
+            if category_ids:
+                query = query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
+        else:
+            # Comportamento di default
+            campus_ids = filters.get('campus_ids')
+            if campus_ids:
+                query = query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
+                
+            category_ids = filters.get('category_ids')
+            if category_ids:
+                query = query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
 
         return query.order_by(AuditLog.created_at.desc())
-
+    
     @staticmethod
     def get_logs(filters: dict, page: int = 1, per_page: int = 50):
-        """Recupera i log filtrati e paginati."""
         query = AuditLogRepository._build_filter_query(filters)
         return query.paginate(page=page, per_page=per_page, error_out=False)
 
     @staticmethod
     def get_all_logs(filters: dict):
-        """Recupera l'intero set di log filtrati senza paginazione (Uso: Esportazioni)."""
         query = AuditLogRepository._build_filter_query(filters)
         return query.all()
-
+ 
     @staticmethod
     def find_by_id(log_id: str) -> AuditLog:
-        """Recupera un singolo record di log tramite il suo UUID."""
         return db.session.query(AuditLog).filter(AuditLog.id == log_id).first()
 
     @staticmethod
     def get_dashboard_metrics(filters: dict) -> dict:
-        """Calcola KPI generali e distribuzioni principali."""
-        base_query = db.session.query(AuditLog)
-        
-        if filters.get('start_date'):
-            base_query = base_query.filter(AuditLog.created_at >= filters['start_date'])
-        if filters.get('end_date'):
-            base_query = base_query.filter(AuditLog.created_at <= filters['end_date'])
-        
-        campus_ids = filters.get('campus_ids')
-        if campus_ids:
-            base_query = base_query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
+        def apply_base_filters(query):
+            query = query.filter(AuditLog.service_name != 'media-service')
+            if filters.get('start_date'):
+                query = query.filter(AuditLog.created_at >= filters['start_date'])
+            if filters.get('end_date'):
+                query = query.filter(AuditLog.created_at <= filters['end_date'])
+            if filters.get('campus_ids'):
+                query = query.filter(AuditLog.payload['campus_id'].astext.in_(filters['campus_ids']))
+            if filters.get('category_ids'):
+                query = query.filter(AuditLog.payload['category_id'].astext.in_(filters['category_ids']))
+            return query
 
-        assets_count = base_query.filter(AuditLog.action == 'ASSET_CREATED').count()
-        tickets_count = base_query.filter(AuditLog.action.in_(['CREATE_WARNING', 'RESOLVE_WARNING'])).count()
-        interventions_count = base_query.filter(AuditLog.action.in_(['LOG_MAINTENANCE'])).count()
+        # Conteggio Asset 
+        asset_query = apply_base_filters(db.session.query(AuditLog))
+        created_assets = asset_query.filter(AuditLog.action == 'ASSET_CREATED').count()
+        deleted_assets = asset_query.filter(AuditLog.action == 'ASSET_DELETED').count()
+        assets_count = max(0, created_assets - deleted_assets)
+        
+        # Conteggio Segnalazioni 
+        warning_query = apply_base_filters(db.session.query(AuditLog))
+        created_warnings = warning_query.filter(AuditLog.action == 'CREATE_WARNING').count()
+        resolved_warnings = warning_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
+        tickets_count = max(0, created_warnings - resolved_warnings) 
+        interventions_count = resolved_warnings 
 
-        category_distribution = db.session.query(
-            AuditLog.payload['category_id'].astext.label('category_id'),
-            func.count(AuditLog.id)
-        ).filter(AuditLog.action == 'ASSET_CREATED')
+        net_asset_calc = func.sum(
+            case(
+                (AuditLog.action == 'ASSET_CREATED', 1),
+                (AuditLog.action == 'ASSET_DELETED', -1),
+                else_=0
+            )
+        )
+
+        category_label = func.coalesce(AuditLog.payload['category_name'].astext, AuditLog.payload['category_id'].astext).label('category_label')
+        category_query = db.session.query(category_label, net_asset_calc).filter(
+            AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
+        )
+        category_query = apply_base_filters(category_query)
+        category_dist_results = category_query.group_by('category_label').having(net_asset_calc > 0).all()
         
-        if campus_ids:
-            category_distribution = category_distribution.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
-            
-        category_dist_results = category_distribution.group_by(AuditLog.payload['category_id'].astext).all()
-        
-        campus_distribution = db.session.query(
-            AuditLog.payload['campus_id'].astext.label('campus_id'),
-            func.count(AuditLog.id)
-        ).filter(AuditLog.action == 'ASSET_CREATED')
-        
-        if campus_ids:
-            campus_distribution = campus_distribution.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
-            
-        campus_dist_results = campus_distribution.group_by(AuditLog.payload['campus_id'].astext).all()
+        campus_label = func.coalesce(AuditLog.payload['campus_name'].astext, AuditLog.payload['campus_id'].astext).label('campus_label')
+        campus_query = db.session.query(campus_label, net_asset_calc).filter(
+            AuditLog.action.in_(['ASSET_CREATED', 'ASSET_DELETED'])
+        )
+        campus_query = apply_base_filters(campus_query)
+        campus_dist_results = campus_query.group_by('campus_label').having(net_asset_calc > 0).all()
 
         return {
             "totals": {
@@ -238,58 +244,38 @@ class AuditLogRepository:
                 "by_campus": {row[0]: row[1] for row in campus_dist_results if row[0]}
             }
         }
-
+    
     @staticmethod
-    def get_dashboard_charts(filters: dict, dynamic_attr: str = None) -> dict:
-        """
-        Calcola i dati strutturati per i grafici (Serie storiche e attributi custom).
-        """
-        base_query = db.session.query(AuditLog)
+    def get_dashboard_charts(filters: dict) -> dict:
+        time_series_query = db.session.query(
+            func.date_trunc('day', AuditLog.created_at).label('creation_day'),
+            func.count().label('count')
+        ).filter(AuditLog.action == 'ASSET_CREATED')
+        
+        time_series_query = time_series_query.filter(AuditLog.service_name != 'media-service')
         
         if filters.get('start_date'):
-            base_query = base_query.filter(AuditLog.created_at >= filters['start_date'])
+            time_series_query = time_series_query.filter(AuditLog.created_at >= filters['start_date'])
         if filters.get('end_date'):
-            base_query = base_query.filter(AuditLog.created_at <= filters['end_date'])
+            time_series_query = time_series_query.filter(AuditLog.created_at <= filters['end_date'])
             
         campus_ids = filters.get('campus_ids')
         if campus_ids:
-            base_query = base_query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
-
-        # 1. Serie Storica: Asset creati per giorno
-        time_series_query = db.session.query(
-            func.date_trunc('day', AuditLog.created_at).label('creation_day'),
-            func.count(AuditLog.id)
-        ).filter(AuditLog.action == 'ASSET_CREATED')
-        
-        if campus_ids:
             time_series_query = time_series_query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
+            
+        category_ids = filters.get('category_ids')
+        if category_ids:
+            time_series_query = time_series_query.filter(AuditLog.payload['category_id'].astext.in_(category_ids))
             
         time_series_results = time_series_query.group_by('creation_day').order_by('creation_day').all()
         
-        # 2. Distribuzione Dinamica (es. grafico a torta su attributi specifici configurati)
-        dynamic_dist_results = []
-        if dynamic_attr:
-            dynamic_query = db.session.query(
-                AuditLog.payload[dynamic_attr].astext.label('attr_val'),
-                func.count(AuditLog.id)
-            ).filter(AuditLog.action == 'ASSET_CREATED', AuditLog.payload.has_key(dynamic_attr))
-            
-            if campus_ids:
-                dynamic_query = dynamic_query.filter(AuditLog.payload['campus_id'].astext.in_(campus_ids))
-                
-            dynamic_dist_results = dynamic_query.group_by('attr_val').all()
-
         return {
             "time_series": [
                 {
                     "date": row[0].strftime('%Y-%m-%d') if row[0] else None, 
                     "count": row[1]
                 } for row in time_series_results
-            ],
-            "dynamic_distribution": {
-                "attribute": dynamic_attr,
-                "data": {row[0]: row[1] for row in dynamic_dist_results if row[0]}
-            } if dynamic_attr else None
+            ]
         }
 
 
@@ -297,14 +283,10 @@ class AuditLogRepository:
 # 6. SERVICE LAYER
 # ============================================================================
 
-class PermissionError(Exception):
-    pass
-
-class NotFoundError(Exception):
-    pass
+class PermissionError(Exception): pass
+class NotFoundError(Exception): pass
 
 class LogService:
-    """Logica di business e orchestrazione dei dati per il Log Service."""
     
     @staticmethod
     def _extract_filters(query_params: dict) -> dict:
@@ -314,11 +296,18 @@ class LogService:
             'actor_id': query_params.get('actor_id'),
             'entity_id': query_params.get('entity_id'),
             'start_date': query_params.get('start_date'),
-            'end_date': query_params.get('end_date')
+            'end_date': query_params.get('end_date'),
+            'log_type': query_params.get('log_type')
         }
+        
         requested_campus = query_params.get('campus_id')
         if requested_campus:
-            filters['campus_ids'] = [requested_campus]
+            filters['campus_ids'] = [c.strip() for c in requested_campus.split(',')]
+            
+        requested_category = query_params.get('category_id')
+        if requested_category:
+            filters['category_ids'] = [c.strip() for c in requested_category.split(',')]
+            
         return filters
 
     @staticmethod
@@ -328,11 +317,23 @@ class LogService:
 
         filters = LogService._extract_filters(query_params)
         
+        user_campuses = auth_context.get('campus_ids', [])
+        requested_campus = query_params.get('campus_id')
+        
+        if requested_campus:
+            requested_list = [c.strip() for c in requested_campus.split(',')]
+            valid_campuses = [c for c in requested_list if c in user_campuses]
+            if not valid_campuses:
+                filters['campus_ids'] = ["INVALID_CAMPUS"] 
+            else:
+                filters['campus_ids'] = valid_campuses
+        else:
+            filters['campus_ids'] = user_campuses
+
         try:
             page = int(query_params.get('page', 1))
             per_page = int(query_params.get('limit', 50))
-            if per_page > 100:
-                per_page = 100
+            if per_page > 100: per_page = 100
         except ValueError:
             page = 1
             per_page = 50
@@ -349,7 +350,7 @@ class LogService:
     @staticmethod
     def get_log_detail(auth_context: dict, log_id: str) -> dict:
         if auth_context.get('role') != 'AMMINISTRATORE':
-            raise PermissionError("Accesso negato. Solo gli Amministratori possono consultare lo storico operazioni.")
+            raise PermissionError("Accesso negato.")
         
         log_entry = AuditLogRepository.find_by_id(log_id)
         if not log_entry:
@@ -360,77 +361,153 @@ class LogService:
     @staticmethod
     def export_csv(auth_context: dict, query_params: dict) -> str:
         if auth_context.get('role') != 'AMMINISTRATORE':
-            raise PermissionError("Accesso negato. Solo gli Amministratori possono esportare lo storico.")
+            raise PermissionError("Accesso negato.")
         
         filters = LogService._extract_filters(query_params)
+        user_campuses = auth_context.get('campus_ids', [])
+        
+        requested_campus = query_params.get('campus_id')
+        if requested_campus:
+            requested_list = [c.strip() for c in requested_campus.split(',')]
+            valid_campuses = [c for c in requested_list if c in user_campuses]
+            if not valid_campuses:
+                filters['campus_ids'] = ["INVALID_CAMPUS"]
+            else:
+                filters['campus_ids'] = valid_campuses
+        else:
+            filters['campus_ids'] = user_campuses
+            
         logs = AuditLogRepository.get_all_logs(filters)
 
-        dynamic_keys = set()
-        for log in logs:
-            if log.payload and isinstance(log.payload, dict):
-                dynamic_keys.update(log.payload.keys())
-        dynamic_keys = sorted(list(dynamic_keys))
+        headers = ['Data e Ora', 'Servizio', 'Azione', 'Utente', 'Oggetto Coinvolto', 'Dettagli Aggiuntivi']
 
-        standard_headers = ['id', 'created_at', 'service_name', 'action', 'actor_id', 'entity_id', 'correlation_id']
-        all_headers = standard_headers + dynamic_keys
+        action_map = {
+            'UPDATE_OPERATOR_PROFILE': 'Aggiornamento Profilo Operatore',
+            '2FA_SUCCESS_LOGIN': 'Accesso con 2FA',
+            'GOOGLE_LOGIN_SUCCESS': 'Accesso con Google',
+            'CATEGORY_DELETED': 'Eliminazione Categoria',
+            'CATEGORY_CREATED': 'Creazione Categoria',
+            'ASSET_CREATED': 'Creazione Asset',
+            'ASSET_UPDATED': 'Aggiornamento Asset',
+            'ASSET_DELETED': 'Eliminazione Asset'
+        }
+        
+        service_map = {
+            'auth-service': 'Autenticazione',
+            'asset-service': 'Gestione Asset',
+            'log-service': 'Audit Log',
+            'geozone-service': 'Gestione Mappe',
+            'media-service': 'Gestione Media',
+            'warning-service': 'Gestione Segnalazioni'
+        }
 
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=all_headers)
+        output.write('\ufeff')
+        writer = csv.DictWriter(output, fieldnames=headers, delimiter=';') 
         writer.writeheader()
 
         for log in logs:
-            row = {
-                'id': str(log.id),
-                'created_at': log.created_at.isoformat() if log.created_at else '',
-                'service_name': log.service_name,
-                'action': log.action,
-                'actor_id': str(log.actor_id) if log.actor_id else '',
-                'entity_id': str(log.entity_id) if log.entity_id else '',
-                'correlation_id': str(log.correlation_id) if log.correlation_id else ''
+            payload = log.payload if isinstance(log.payload, dict) else {}
+            data_ora = log.created_at.strftime('%Y-%m-%d %H:%M:%S') if log.created_at else 'Data Sconosciuta'
+            azione_pulita = action_map.get(log.action, log.action.replace('_', ' ').title())
+            servizio_pulito = service_map.get(log.service_name, log.service_name)
+            utente = payload.get('email') or str(log.actor_id) if log.actor_id else 'Sistema / Sconosciuto'
+
+            oggetto = ''
+            if payload.get('campus_name'): oggetto += f"Campus: {payload.get('campus_name')} "
+            if payload.get('category_name'): oggetto += f"Categoria: {payload.get('category_name')} "
+            if payload.get('asset_name'): oggetto += f"Asset: {payload.get('asset_name')} "
+            elif log.entity_id: oggetto += f"ID: {str(log.entity_id)[:8]}..." 
+            
+            oggetto = oggetto.strip() if oggetto else 'Operazione di Sistema'
+
+            keys_to_ignore = {
+                'email', 'autore_id', 'actor_id', 'service_name', 'azione', 'action', 
+                'timestamp', 'correlation_id', 'entity_id', 'campus_name', 'category_name', 'asset_name',
+                'campus_id', 'category_id', 'media_id', 'asset_id'
             }
-            if log.payload and isinstance(log.payload, dict):
-                for k in dynamic_keys:
-                    val = log.payload.get(k, '')
-                    row[k] = json.dumps(val) if isinstance(val, (dict, list)) else str(val)
+            
+            dettagli_list = []
+            for key, val in payload.items():
+                if key not in keys_to_ignore and val not in [None, '', [], {}]:
+                    if isinstance(val, dict): clean_val = ", ".join([f"{k}: {v}" for k, v in val.items()])
+                    elif isinstance(val, list): clean_val = ", ".join(map(str, val))
+                    else: clean_val = str(val)
+                    
+                    clean_key = key.replace('_', ' ').title()
+                    dettagli_list.append(f"{clean_key}: {clean_val}")
+
+            dettagli_stringa = " | ".join(dettagli_list) if dettagli_list else "-"
+
+            row = {
+                'Data e Ora': data_ora,
+                'Servizio': servizio_pulito,
+                'Azione': azione_pulita,
+                'Utente': utente,
+                'Oggetto Coinvolto': oggetto,
+                'Dettagli Aggiuntivi': dettagli_stringa
+            }
             writer.writerow(row)
 
         return output.getvalue()
 
     @staticmethod
     def get_dashboard_stats(auth_context: dict, query_params: dict) -> dict:
-        if auth_context.get('role') != 'AMMINISTRATORE':
+        user_role = auth_context.get('role')
+        user_campuses = auth_context.get('campus_ids', [])
+
+        if user_role != 'AMMINISTRATORE':
             raise PermissionError("Accesso negato. Solo gli Amministratori possono visualizzare la dashboard.")
-            
-        filters = {
-            'start_date': query_params.get('start_date'),
-            'end_date': query_params.get('end_date')
-        }
+
+        if not user_campuses:
+            return {
+                "totals": {"assets": 0, "interventions": 0, "tickets": 0},
+                "distributions": {"by_campus": {}, "by_category": {}}
+            }
+
+        filters = LogService._extract_filters(query_params)
+
         requested_campus = query_params.get('campus_id')
         if requested_campus:
-            filters['campus_ids'] = [requested_campus]
+            requested_list = [c.strip() for c in requested_campus.split(',')]
+            valid_campuses = [c for c in requested_list if c in user_campuses]
+            if valid_campuses:
+                filters['campus_ids'] = valid_campuses
+            else:
+                return {
+                    "totals": {"assets": 0, "interventions": 0, "tickets": 0},
+                    "distributions": {"by_campus": {}, "by_category": {}}
+                }
+        else:
+            filters['campus_ids'] = user_campuses
             
         return AuditLogRepository.get_dashboard_metrics(filters)
 
     @staticmethod
     def get_dashboard_chart_data(auth_context: dict, query_params: dict) -> dict:
-        """
-        Elabora e restituisce i dati per i grafici temporali e dinamici.
-        """
-        if auth_context.get('role') != 'AMMINISTRATORE':
-            raise PermissionError("Accesso negato. Solo gli Amministratori possono visualizzare la dashboard.")
+        user_role = auth_context.get('role')
+        user_campuses = auth_context.get('campus_ids', [])
+
+        if user_role != 'AMMINISTRATORE':
+            raise PermissionError("Accesso negato.")
             
-        filters = {
-            'start_date': query_params.get('start_date'),
-            'end_date': query_params.get('end_date')
-        }
+        if not user_campuses:
+            return {"time_series": []}
+
+        filters = LogService._extract_filters(query_params)
+        
         requested_campus = query_params.get('campus_id')
         if requested_campus:
-            filters['campus_ids'] = [requested_campus]
+            requested_list = [c.strip() for c in requested_campus.split(',')]
+            valid_campuses = [c for c in requested_list if c in user_campuses]
+            if valid_campuses:
+                filters['campus_ids'] = valid_campuses
+            else:
+                return {"time_series": []}
+        else:
+            filters['campus_ids'] = user_campuses
             
-        dynamic_attr = query_params.get('dynamic_attribute')
-            
-        return AuditLogRepository.get_dashboard_charts(filters, dynamic_attr)
-
+        return AuditLogRepository.get_dashboard_charts(filters)
 
 # ============================================================================
 # 7. ENDPOINT: API RESTFUL
@@ -501,10 +578,6 @@ def get_dashboard_metrics_api():
     
 @app.route('/api/dashboard/charts', methods=['GET'])
 def get_dashboard_charts_api():
-    """
-    Endpoint per alimentare i grafici della dashboard.
-    Restituisce andamenti temporali e, se richiesto, la distribuzione su attributi custom (es. 'status').
-    """
     auth_context = get_auth_context()
     try:
         result = LogService.get_dashboard_chart_data(auth_context, request.args)
@@ -515,29 +588,28 @@ def get_dashboard_charts_api():
         logger.error(f"Errore elaborazione dati grafici dashboard: {str(e)}")
         return error_response("Errore interno del server", 500)
 
+
 # ============================================================================
 # 8. RABBITMQ CONSUMER BACKGROUND THREAD
 # ============================================================================
 
 def process_log_event(ch, method, properties, body):
-    """
-    Callback eseguita per ogni messaggio RabbitMQ ricevuto.
-    Gestisce l'ACK manuale in sicurezza.
-    """
     with app.app_context():
         try:
-            # 1. Parsing del messaggio JSON
             message_data = json.loads(body.decode('utf-8'))
             
-            # 2. Validazione DTO
             schema = EventPayloadSchema()
             validated_data = schema.load(message_data)
             
-            # Parsing sicuro del timestamp originale emesso dal publisher
+            # SCARTO LOG MEDIA: Blocchiamo il salvataggio dei log provenienti da media-service
+            if validated_data.get('service_name') == 'media-service':
+                if ch.is_open:
+                    ch.basic_ack(delivery_tag=method.delivery_tag)
+                return
+
             raw_timestamp = validated_data.get('timestamp')
             parsed_created_at = dateutil.parser.isoparse(raw_timestamp) if raw_timestamp else None
 
-            # 3. Creazione del modello AuditLog
             log_entry = AuditLog(
                 correlation_id=validated_data.get('correlation_id'),
                 service_name=validated_data.get('service_name'),
@@ -548,10 +620,8 @@ def process_log_event(ch, method, properties, body):
                 created_at=parsed_created_at  
             )
             
-            # 4. Salvataggio su database
-            AuditLogRepository.insert(log_entry)
+            AuditLogRepository.insert(log_entry)            
             
-            # ACK manuale: Conferma il salvataggio e rimuove il messaggio dalla coda
             if ch.is_open:
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 
@@ -571,7 +641,6 @@ def process_log_event(ch, method, properties, body):
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
 
 def start_mq_consumer():
-    """Avvia il consumer con retry automatico e coda dedicata persistente."""
     while True:
         try:
             logger.info("[*] Avvio consumer RabbitMQ (Log Service)...")
@@ -585,15 +654,13 @@ def start_mq_consumer():
         except Exception as e:
             logger.error(f"[!] Connessione RabbitMQ persa: {str(e)}. Riconnessione tra 5s...")
             time.sleep(5)
-        
+
 # ============================================================================
-# ENTRY POINT
+# ENTRY POINT  
 # ============================================================================
+
+consumer_thread = threading.Thread(target=start_mq_consumer, daemon=True)
+consumer_thread.start()
 
 if __name__ == '__main__':
-    # Avvia il consumer in background 
-    consumer_thread = threading.Thread(target=start_mq_consumer, daemon=True)
-    consumer_thread.start()
-
-    # Avvio del server Flask 
     app.run(host='0.0.0.0', port=5000)

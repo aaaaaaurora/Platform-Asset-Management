@@ -52,6 +52,7 @@
 							"pm.test(\"Category created successfully and ID saved\", function () {",
 							"    var jsonData = pm.response.json();",
 							"    pm.expect(jsonData.category.name).to.eql(\"Veicoli\");",
+							"    pm.expect(jsonData.category.icon).to.eql(\"🚜\");",
 							"    pm.collectionVariables.set(\"category_id\", jsonData.category._id);",
 							"});"
 						],
@@ -69,7 +70,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"name\": \"Veicoli\",\n    \"description\": \"Categoria mezzi\"\n}"
+					"raw": "{\n    \"name\": \"Veicoli\",\n    \"description\": \"Categoria mezzi\",\n    \"icon\": \"🚜\"\n}"
 				},
 				"url": {
 					"raw": "{{base_url}}/api/categories",
@@ -274,6 +275,7 @@
 					{ "key": "X-User-Id", "value": "op-456" },
 					{ "key": "X-User-Role", "value": "OPERATORE" },
 					{ "key": "X-Campus-Ids", "value": "campus-A" },
+					{ "key": "X-Client-Type", "value": "mobile" },
 					{ "key": "Content-Type", "value": "application/json" }
 				],
 				"body": {
@@ -314,6 +316,7 @@
 					{ "key": "X-User-Id", "value": "op-456" },
 					{ "key": "X-User-Role", "value": "OPERATORE" },
 					{ "key": "X-Campus-Ids", "value": "campus-A" },
+					{ "key": "X-Client-Type", "value": "mobile" },
 					{ "key": "Content-Type", "value": "application/json" }
 				],
 				"body": {
@@ -354,6 +357,7 @@
 					{ "key": "X-User-Id", "value": "op-456" },
 					{ "key": "X-User-Role", "value": "OPERATORE" },
 					{ "key": "X-Campus-Ids", "value": "campus-A" },
+					{ "key": "X-Client-Type", "value": "mobile" },
 					{ "key": "Content-Type", "value": "application/json" }
 				],
 				"body": {
@@ -394,6 +398,7 @@
 					{ "key": "X-User-Id", "value": "op-456" },
 					{ "key": "X-User-Role", "value": "OPERATORE" },
 					{ "key": "X-Campus-Ids", "value": "campus-A" },
+					{ "key": "X-Client-Type", "value": "mobile" },
 					{ "key": "Content-Type", "value": "application/json" }
 				],
 				"body": {

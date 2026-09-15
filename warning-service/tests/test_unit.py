@@ -9,7 +9,6 @@ from sqlalchemy import text
 # ============================================================================
 os.environ['DATABASE_URL'] = os.getenv('DATABASE_URL', 'postgresql://user:pass@127.0.0.1:5433/warning_db')
 
-# Aggiunto import di LocalAssetCache
 from app import app, db, Warning, WarningStatus, MaintenanceIntervention, MaintenanceType, LocalAssetCache
 
 # ============================================================================
@@ -43,8 +42,6 @@ def mock_rabbitmq():
     with patch('app.mq_manager.publish_event') as mock_pub:
         yield mock_pub
 
-# Il mock_asset_service è stato RIMOSSO perché non facciamo più chiamate HTTP sincrone.
-
 # ============================================================================
 # TEST CASES
 # ============================================================================
@@ -58,10 +55,11 @@ def test_health_check(client):
 def test_create_warning_success(client):
     """Verifica la creazione corretta di una segnalazione pubblica (US 6-1)."""
     campus_id = uuid.uuid4()
-    asset_id_str = "123456789012345678901234" # Stringa 24 caratteri (simula ObjectId)
+    asset_id_str = "123456789012345678901234" 
+    category_id_str = "aaaaaaaaaaaaaaaaaaaaaaaa"
     
     # 1. Popola la cache locale simulando un evento ricevuto via RabbitMQ in precedenza
-    cache_entry = LocalAssetCache(asset_id=asset_id_str, campus_id=campus_id)
+    cache_entry = LocalAssetCache(asset_id=asset_id_str, category_id=category_id_str, campus_id=campus_id)
     db.session.add(cache_entry)
     db.session.commit()
 
@@ -77,9 +75,10 @@ def test_create_warning_success(client):
     assert 'warning_id' in response.json
     assert response.json['status'] == 'aperta'
     
-    # Verifica che il record sia stato creato nel database
+    # Verifica che il record sia stato creato nel database e includa la categoria
     warning = Warning.query.first()
     assert warning is not None
+    assert warning.category_id == category_id_str
     assert warning.description == "L'asset risulta danneggiato."
 
 def test_create_warning_invalid_asset(client):
@@ -100,10 +99,11 @@ def test_get_warnings_operator(client):
     """Verifica che l'Operatore veda solo le segnalazioni del suo campus (US 6-2)."""
     campus_1 = uuid.uuid4()
     campus_2 = uuid.uuid4()
+    category_id_str = "aaaaaaaaaaaaaaaaaaaaaaaa"
     
-    # Crea due segnalazioni in due campus diversi (usando ID fittizi da 24 char)
-    w1 = Warning(asset_id="111111111111111111111111", campus_id=campus_1, reporter_id=uuid.uuid4(), description="Guasto C1")
-    w2 = Warning(asset_id="222222222222222222222222", campus_id=campus_2, reporter_id=uuid.uuid4(), description="Guasto C2")
+    # Crea due segnalazioni in due campus diversi
+    w1 = Warning(asset_id="111111111111111111111111", category_id=category_id_str, campus_id=campus_1, reporter_id=uuid.uuid4(), description="Guasto C1")
+    w2 = Warning(asset_id="222222222222222222222222", category_id=category_id_str, campus_id=campus_2, reporter_id=uuid.uuid4(), description="Guasto C2")
     db.session.add_all([w1, w2])
     db.session.commit()
     
@@ -118,15 +118,19 @@ def test_get_warnings_operator(client):
     assert response.status_code == 200
     assert len(response.json) == 1
     assert response.json[0]['descrizione'] == "Guasto C1"
+    # Verifica che venga restituita la category_id
+    assert response.json[0]['category_id'] == category_id_str
 
 def test_resolve_warning_success(client):
     """Verifica la chiusura di una segnalazione e la registrazione della manutenzione (US 6-3)."""
     campus_id = uuid.uuid4()
     operator_id = uuid.uuid4()
+    category_id_str = "aaaaaaaaaaaaaaaaaaaaaaaa"
     
     # 1. Prepara una segnalazione aperta
     warning = Warning(
-        asset_id="123456789012345678901234", # Aggiornato a 24 char
+        asset_id="123456789012345678901234", 
+        category_id=category_id_str,
         campus_id=campus_id,
         reporter_id=uuid.uuid4(),
         description="Palo della luce fulminato"
@@ -160,9 +164,11 @@ def test_resolve_warning_wrong_campus(client):
     """Verifica il blocco di sicurezza se l'Operatore tenta di chiudere un ticket fuori giurisdizione."""
     campus_autorizzato = uuid.uuid4()
     campus_non_autorizzato = uuid.uuid4()
+    category_id_str = "aaaaaaaaaaaaaaaaaaaaaaaa"
     
     warning = Warning(
-        asset_id="123456789012345678901234", # Aggiornato a 24 char
+        asset_id="123456789012345678901234", 
+        category_id=category_id_str,
         campus_id=campus_non_autorizzato,
         reporter_id=uuid.uuid4(),
         description="Ticket blindato"
@@ -185,9 +191,10 @@ def test_create_maintenance_success(client):
     """Verifica la creazione di un intervento di manutenzione diretta (US 4-3)."""
     campus_id = uuid.uuid4()
     asset_id_str = "123456789012345678901234"
+    category_id_str = "aaaaaaaaaaaaaaaaaaaaaaaa"
     
     # Popola la cache locale
-    cache_entry = LocalAssetCache(asset_id=asset_id_str, campus_id=campus_id)
+    cache_entry = LocalAssetCache(asset_id=asset_id_str, category_id=category_id_str, campus_id=campus_id)
     db.session.add(cache_entry)
     db.session.commit()
     
@@ -215,9 +222,10 @@ def test_create_maintenance_invalid_type(client):
     """Verifica che il sistema respinga tipologie di intervento non previste dall'Enum."""
     campus_id = uuid.uuid4()
     asset_id_str = "123456789012345678901234"
+    category_id_str = "aaaaaaaaaaaaaaaaaaaaaaaa"
     
     # Popola la cache locale
-    cache_entry = LocalAssetCache(asset_id=asset_id_str, campus_id=campus_id)
+    cache_entry = LocalAssetCache(asset_id=asset_id_str, category_id=category_id_str, campus_id=campus_id)
     db.session.add(cache_entry)
     db.session.commit()
 

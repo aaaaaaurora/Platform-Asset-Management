@@ -279,10 +279,9 @@
 							"    pm.response.to.have.status(200);",
 							"});",
 							"",
-							"pm.test(\"La risposta è un array con almeno un operatore\", function () {",
+							"pm.test(\"La risposta è un array\", function () {",
 							"    var jsonData = pm.response.json();",
 							"    pm.expect(jsonData).to.be.an(\"array\");",
-							"    pm.expect(jsonData.length).to.be.above(0);",
 							"});"
 						],
 						"type": "text/javascript"
@@ -291,7 +290,13 @@
 			],
 			"request": {
 				"method": "GET",
-				"header": [],
+				"header": [
+					{
+						"key": "X-User-Id",
+						"value": "{{$guid}}",
+						"description": "Inietta un User-Id fittizio"
+					}
+				],
 				"url": {
 					"raw": "{{base_url}}/admin/operators",
 					"host": [

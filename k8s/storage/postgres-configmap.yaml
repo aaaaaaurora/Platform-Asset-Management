@@ -16,6 +16,7 @@ data:
     -- ==========================================
     \c auth_db;
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
     -- Funzione per il trigger
     CREATE OR REPLACE FUNCTION update_modified_column()
@@ -61,9 +62,8 @@ data:
       category_id VARCHAR(24) NOT NULL,
       PRIMARY KEY (user_id, category_id)
     );
-
     -- ==========================================
-    -- 2. GEOZONE SERVICE DATABASE
+    -- 2. GEOZONE SERVICE DATABASE 
     -- ==========================================
     \c geo_db;
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -81,6 +81,7 @@ data:
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       name VARCHAR(100) UNIQUE NOT NULL,
       description TEXT,
+      admin_id UUID NOT NULL,
       geom GEOMETRY(Polygon, 4326),
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -116,7 +117,8 @@ data:
       campus_id UUID NOT NULL,      -- Denormalizzato per filtro rapido
       reporter_id UUID NOT NULL,    -- Soft link a PostgreSQL (Auth Service)
       description TEXT NOT NULL,
-      status warning_status DEFAULT 'aperta',
+      status warning_status DEFAULT 'aperta',     
+      category_id VARCHAR(24) NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -141,7 +143,10 @@ data:
     -- Tabella 3: cache locale degli Asset 
     CREATE TABLE local_asset_cache (
       asset_id VARCHAR(24) PRIMARY KEY,
-      campus_id UUID NOT NULL
+      campus_id UUID NOT NULL,
+      category_id VARCHAR(24) NOT NULL,
+      campus_name VARCHAR(100),
+      asset_name VARCHAR(255)
     );
 
     -- ==========================================

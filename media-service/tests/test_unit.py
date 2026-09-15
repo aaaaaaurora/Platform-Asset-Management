@@ -135,7 +135,7 @@ def test_upload_image_invalid_extension(client):
     assert "Estensione file non consentita" in response.json['errors'][0]['error']
 
 def test_get_image_success(client, mock_minio):
-    """Verifica la generazione dell'URL pre-firmato e il redirect (US 3-2)."""
+    """Verifica la restituzione diretta dello stream binario dell'immagine (US 3-2)."""
     # Inserisce un record fittizio nel DB
     media_id = uuid.uuid4()
     metadata = MediaMetadata(
@@ -151,9 +151,14 @@ def test_get_image_success(client, mock_minio):
     
     response = client.get(f'/images/{media_id}')
     
-    # Flask redirect restituisce 302
-    assert response.status_code == 302
-    assert "http://localhost:9000/mock-presigned-url" in response.headers['Location']
+    # Il nuovo endpoint restituisce direttamente il file con status 200 OK
+    assert response.status_code == 200
+    
+    # Verifica che il Content-Type sia corretto
+    assert response.mimetype == "image/jpeg"
+    
+    # Verifica che il payload contenga effettivamente i byte dell'immagine mockata
+    assert response.data == b"fake-image-bytes"
 
 def test_get_image_not_found(client):
     """Verifica la risposta 404 se l'immagine non esiste a database."""
