@@ -208,8 +208,15 @@ class AuditLogRepository:
         warning_query = apply_base_filters(db.session.query(AuditLog))
         created_warnings = warning_query.filter(AuditLog.action == 'CREATE_WARNING').count()
         resolved_warnings = warning_query.filter(AuditLog.action == 'RESOLVE_WARNING').count()
-        tickets_count = max(0, created_warnings - resolved_warnings) 
-        interventions_count = resolved_warnings 
+        
+        # <-- NUOVA LOGICA: Contiamo gli annullamenti
+        cancelled_warnings = warning_query.filter(AuditLog.action == 'CANCEL_WARNING').count()
+        
+        # I ticket aperti scendono sia se li risolvi, sia se li annulli d'ufficio
+        tickets_count = max(0, created_warnings - resolved_warnings - cancelled_warnings) 
+        
+        # Gli interventi utili contano SOLO il lavoro reale (risoluzioni)
+        interventions_count = resolved_warnings
 
         net_asset_calc = func.sum(
             case(

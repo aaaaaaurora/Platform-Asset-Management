@@ -103,9 +103,9 @@ def publish_audit(action, entity_id, actor_id, campus_id, payload_details):
         
     mq_manager.publish_event('system_events', action, str(actor_id), 'warning-service', event_data)
     
-# ==========================================
+# ==============================================
 # CONSUMER ASINCRONO PER CACHE ASSET E WARNINGS
-# ==========================================
+# ==============================================
 def process_asset_events(ch, method, properties, body):
     """Callback per elaborare gli eventi dell'Asset Service e aggiornare la cache locale."""
     with app.app_context():
@@ -155,40 +155,42 @@ def process_asset_events(ch, method, properties, body):
                     category_id = asset.category_id if asset else None
                     asset_name = asset.asset_name if asset else None
 
-                    # 2. <-- NUOVA LOGICA: Chiusura automatica di tutte le segnalazioni pendenti per l'asset eliminato
+                    # 2. <-- MODIFICA: Recuperiamo i ticket pendenti
                     pending_warnings = db.session.query(Warning).filter_by(asset_id=asset_id, status=WarningStatus.aperta).all()
                     
-                    for w in pending_warnings:
-                        w.status = WarningStatus.annullata
+                    if pending_warnings:
+                        # Eseguiamo un UPDATE diretto sul database per garantire il cambio di stato
+                        db.session.query(Warning).filter_by(asset_id=asset_id, status=WarningStatus.aperta).update({"status": WarningStatus.annullata})
                         
-                        # Aggiungiamo un intervento di sistema per tracciabilità
-                        auto_maintenance = MaintenanceIntervention(
-                            asset_id=asset_id,
-                            campus_id=w.campus_id,
-                            operator_id='system', 
-                            warning_id=w.id,
-                            intervention_type=MaintenanceType.correttiva,
-                            technical_note="Segnalazione annullata automaticamente: l'asset associato è stato eliminato dalla mappa."
-                        )
-                        db.session.add(auto_maintenance)
-                        db.session.flush()
+                        for w in pending_warnings:
+                            # Aggiungiamo un intervento di sistema per tracciabilità
+                            auto_maintenance = MaintenanceIntervention(
+                                asset_id=asset_id,
+                                campus_id=w.campus_id,
+                                operator_id='system', 
+                                warning_id=w.id,
+                                intervention_type=MaintenanceType.correttiva,
+                                technical_note="Segnalazione annullata automaticamente: l'asset associato è stato eliminato dalla mappa."
+                            )
+                            db.session.add(auto_maintenance)
+                            db.session.flush()
 
-                        # Informiamo gli altri servizi e la dashboard dell'annullamento
-                        publish_audit(
-                            action="RESOLVE_WARNING",
-                            entity_id=str(w.id),
-                            actor_id='system',
-                            campus_id=str(w.campus_id),
-                            payload_details={
-                                "asset_id": asset_id,
-                                "status_precedente": "aperta",
-                                "status_nuovo": "annullata",
-                                "maintenance_id": str(auto_maintenance.id),
-                                "campus_name": campus_name, 
-                                "category_id": str(category_id),
-                                "asset_name": asset_name   
-                            }
-                        )
+                            # Informiamo gli altri servizi e la dashboard dell'annullamento
+                            publish_audit(
+                                action="CANCEL_WARNING",
+                                entity_id=str(w.id),
+                                actor_id='system',
+                                campus_id=str(w.campus_id),
+                                payload_details={
+                                    "asset_id": asset_id,
+                                    "status_precedente": "aperta",
+                                    "status_nuovo": "annullata",
+                                    "maintenance_id": str(auto_maintenance.id),
+                                    "campus_name": campus_name, 
+                                    "category_id": str(category_id),
+                                    "asset_name": asset_name   
+                                }
+                            )
 
                     # 3. Eliminiamo l'asset dalla cache locale
                     if asset:
@@ -201,16 +203,13 @@ def process_asset_events(ch, method, properties, body):
                 if campus_id:
                     campus_uuid = uuid.UUID(campus_id)
                     
-                    # 1. Annulliamo tutte le segnalazioni aperte pendenti sui campus eliminati
-                    # Poiché le segnalazioni richiedono un intervento sul campo, la distruzione del campus rende impossibile operare
-                    pending_warnings_campus = db.session.query(Warning).filter_by(campus_id=campus_uuid, status=WarningStatus.aperta).all()
-                    for w in pending_warnings_campus:
-                        w.status = WarningStatus.annullata
+                    # MODIFICA: Stesso approccio bulk update per il campus
+                    db.session.query(Warning).filter_by(campus_id=campus_uuid, status=WarningStatus.aperta).update({"status": WarningStatus.annullata})
                     
                     # 2. Elimina dalla cache locale tutti gli asset di quel campus
                     db.session.query(LocalAssetCache).filter_by(campus_id=campus_uuid).delete()
                     db.session.commit()
-
+                    
             # Ack manuale se auto_ack è impostato a False nel manager
             if ch.is_open and not getattr(ch, 'auto_ack', True):
                 ch.basic_ack(delivery_tag=method.delivery_tag)
