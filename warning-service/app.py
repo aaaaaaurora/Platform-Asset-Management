@@ -381,9 +381,9 @@ def get_warnings():
 
     return jsonify(result), 200
 
-# ==========================================
-# ENDPOINT: US 6-3 (Risoluzione Segnalazione)
-# ==========================================
+# =============================================
+# ENDPOINT: US 6-3 
+# =============================================
 @app.route('/warnings/<warning_id_str>/resolve', methods=['PATCH'])
 def resolve_warning(warning_id_str):
     """
