@@ -31,7 +31,7 @@ spec:
       containers:
       - name: minio
         image: minio/minio:latest
-        # Avviamo il server puntando alla cartella /data e apriamo la console web sulla porta 9001
+        imagePullPolicy: IfNotPresent
         command:
         - /bin/sh
         - -c

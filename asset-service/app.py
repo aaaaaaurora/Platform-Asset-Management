@@ -1185,7 +1185,7 @@ def export_assets():
             mongo_query[k] = v
 
     try:
-        # Estrazione completa degli asset corrispondenti alla query (senza limiti di paginazione per l'export)
+        # Estrazione completa degli asset corrispondenti alla query (senza limiti di paginazione per l'export) 
         assets_list = list(assets_col.find(mongo_query))
         
         # Recupero nomi categorie in cache per la colonna descrittiva
