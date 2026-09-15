@@ -59,15 +59,6 @@ const TicketIcon = (
   </svg>
 );
 
-const PlusIcon = (
-  <svg className="w-5 h-5 fill-current" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
-    <path
-      d="M9 3.375C9.31066 3.375 9.5625 3.62684 9.5625 3.9375V8.4375H14.0625C14.3732 8.4375 14.625 8.68934 14.625 9C14.625 9.31066 14.3732 9.5625 14.0625 9.5625H9.5625V14.0625C9.5625 14.3732 9.31066 14.625 9 14.625C8.68934 14.625 8.4375 14.3732 8.4375 14.0625V9.5625H3.9375C3.62684 9.5625 3.375 9.31066 3.375 9C3.375 8.68934 3.62684 8.4375 3.9375 8.4375H8.4375V3.9375C8.4375 3.62684 8.68934 3.375 9 3.375Z"
-      fill=""
-    />
-  </svg>
-);
-
 const ListIcon = (
   <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
     <path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z" />
@@ -96,7 +87,6 @@ const getNavItemsByRole = (role?: string): NavItem[] => {
       return [
         ...baseMenu,
         { icon: TicketIcon, name: "Segnalazioni", path: "/operator/tickets" },
-        { icon: PlusIcon, name: "Nuovo Asset", path: "/assets/new" },
         { icon: ListIcon, name: "Lista Assets", path: "/assets/list" }, 
       ];
     case "UTENTE":
