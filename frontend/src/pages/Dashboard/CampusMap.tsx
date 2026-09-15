@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import WarningFormModal from '../../components/guest/WarningFormModal';
 import Supercluster from 'supercluster';
 
-// Funzione ausiliaria per verificare se un punto [lng, lat] si trova dentro un poligono GeoJSON 
+// Funzione ausiliaria per verificare se un punto [lng, lat] si trova dentro un poligono GeoJSON (Ray-casting algorithm)
 function isPointInPolygon(point: [number, number], polygonCoords: number[][][]) {
   const [x, y] = point;
   let inside = false;
@@ -366,8 +366,10 @@ export default function CampusMap() {
     }
   }, [assets, viewState, supercluster, maxBounds]);
 
+  // MODIFICA QUI: Rimosso h-[calc(100vh-100px)] e overflow-hidden dal genitore, 
+  // permettendo alla pagina di scrollare interamente.
   return (
-    <div className="flex flex-col h-[calc(100vh-100px)] w-full relative mb-10 overflow-hidden">
+    <div className="flex flex-col w-full relative mb-10">
       
       {isInitializingLocation && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm transition-all">
@@ -376,7 +378,6 @@ export default function CampusMap() {
         </div>
       )}
 
-      {/* Rimosso l'overflow-y-auto dal contenitore principale dei filtri per permettere alle tendine dropdown di fuoriuscire liberamente */}
       {campuses.length > 0 && (
         <div className="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0 z-10">
           <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-2' : ''} gap-6`}>
@@ -474,7 +475,6 @@ export default function CampusMap() {
             )}
           </div>
 
-        {/* L'overflow-y-auto è ora applicato SOLO alla sezione dei filtri dinamici */}
         {activeCategoriesForFilters.length > 0 && activeCategoriesForFilters.some(cat => cat.attributes?.some((attr: any) => attr.filterable && attr.status !== 'unavailable')) && (
           <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-col gap-2.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
@@ -542,8 +542,8 @@ export default function CampusMap() {
         </div>
       )}
 
-      {/* Contenitore Mappa: occupa tutto lo spazio rimanente */}
-      <div className="relative flex-1 w-full overflow-hidden border rounded-xl border-stroke shadow-default dark:border-strokedark dark:bg-boxdark">
+      {/* MODIFICA QUI: Aggiunta un'altezza fissa minima per garantire che la mappa non si schiacci mai */}
+      <div className="relative w-full h-[calc(100vh-120px)] min-h-[600px] overflow-hidden border rounded-xl border-stroke shadow-default dark:border-strokedark dark:bg-boxdark">
         <Map 
           ref={mapRef} 
           {...viewState} 
