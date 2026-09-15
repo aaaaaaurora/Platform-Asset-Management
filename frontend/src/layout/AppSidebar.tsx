@@ -96,7 +96,6 @@ const getNavItemsByRole = (role?: string): NavItem[] => {
       return [
         ...baseMenu,
         { icon: TicketIcon, name: "Segnalazioni", path: "/operator/tickets" },
-        { icon: PlusIcon, name: "Nuovo Asset", path: "/assets/new" },
         { icon: ListIcon, name: "Lista Assets", path: "/assets/list" }, 
       ];
     case "UTENTE":
