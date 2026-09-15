@@ -99,6 +99,28 @@ export default function CampusMap() {
   const [selectedAsset, setSelectedAsset] = useState<any | null>(null);
   
   const [isWarningModalOpen, setIsWarningModalOpen] = useState(false);
+
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+
+  const handleDeleteAsset = async () => {
+    if (!selectedAsset) return;
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/asset/api/assets/${selectedAsset._id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        setAssets(prev => prev.filter(a => a._id !== selectedAsset._id));
+        setIsDeleteConfirmOpen(false);
+        setSelectedAsset(null);
+      } else {
+        alert("Errore durante l'eliminazione dell'asset.");
+      }
+    } catch (error) {
+      console.error("Errore API eliminazione:", error);
+    }
+  };
+
   const [permissionLimitationMsg, setPermissionLimitationMsg] = useState<string | null>(null);
   
   const [clusters, setClusters] = useState<any[]>([]);
@@ -676,33 +698,16 @@ export default function CampusMap() {
                     </button>
                   )}
                   {isAdmin && (
-  <button 
-    onClick={async () => {
-      if (window.confirm("Sei sicuro di voler eliminare definitivamente questo asset?")) {
-        try {
-          const res = await fetch(`${import.meta.env.VITE_API_URL}/asset/api/assets/${selectedAsset._id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (res.ok) {
-            setAssets(prev => prev.filter(a => a._id !== selectedAsset._id));
-            setSelectedAsset(null);
-          } else {
-            alert("Errore durante l'eliminazione dell'asset.");
-          }
-        } catch (error) {
-          console.error("Errore API eliminazione:", error);
-        }
-      }
-    }}
-    className="flex items-center justify-center w-8 h-8 rounded-full bg-red-50 text-red-600 hover:bg-red-100 transition-colors dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
-    title="Elimina Asset"
-  >
-    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-    </svg>
-  </button>
-)}
+                    <button 
+                      onClick={() => setIsDeleteConfirmOpen(true)}
+                      className="flex items-center justify-center w-8 h-8 rounded-full bg-red-50 text-red-600 hover:bg-red-100 transition-colors dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
+                      title="Elimina Asset"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
                 <button 
                   onClick={() => setSelectedAsset(null)} 
@@ -761,6 +766,44 @@ export default function CampusMap() {
         </>,
         document.body
       )}
+    {/* MODALE DI CONFERMA ELIMINAZIONE PERSONALIZZATA (Va messa QUI, fuori dal portal precedente) */}
+    {isDeleteConfirmOpen && selectedAsset && createPortal(
+        <div className="fixed inset-0 z-[10005] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="relative w-full max-w-sm rounded-xl bg-white shadow-2xl dark:bg-boxdark border border-stroke dark:border-strokedark overflow-hidden animate-fade-in-up">
+            <div className="p-6 text-center">
+              
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30 text-red-600">
+                <svg className="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              
+              <h3 className="mb-2 text-xl font-bold text-black dark:text-white">Elimina Asset</h3>
+              <p className="mb-6 text-sm text-gray-500 dark:text-gray-400">
+                Sei sicuro di voler eliminare definitivamente questo asset dalla mappa? Questa azione non può essere annullata.
+              </p>
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setIsDeleteConfirmOpen(false)} 
+                  className="flex-1 rounded-lg border border-stroke dark:border-strokedark bg-gray-50 dark:bg-meta-4 py-2.5 text-sm font-medium text-black dark:text-white transition hover:bg-gray-100 dark:hover:bg-meta-3"
+                >
+                  Annulla
+                </button>
+                <button 
+                  onClick={handleDeleteAsset} 
+                  className="flex-1 rounded-lg bg-red-600 py-2.5 text-sm font-medium text-white transition hover:bg-red-700 shadow-sm"
+                >
+                  Sì, elimina
+                </button>
+              </div>
+
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
     </div>
   );
 }
