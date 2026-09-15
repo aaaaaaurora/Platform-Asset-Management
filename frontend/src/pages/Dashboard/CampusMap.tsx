@@ -82,13 +82,11 @@ export default function CampusMap() {
 
   const [viewState, setViewState] = useState({ longitude: 14.7900, latitude: 40.7700, zoom: 15, pitch: 45, bearing: 0 });
   const [campuses, setCampuses] = useState<any[]>([]);
-  const [isInitializingLocation, setIsInitializingLocation] = useState(true); // Stato per lo spinner iniziale
+  const [isInitializingLocation, setIsInitializingLocation] = useState(true); 
   
-  // FILTRO CAMPUS (Singolo)
   const [selectedCampus, setSelectedCampus] = useState<string>('');
   const [isCampusDropdownOpen, setIsCampusDropdownOpen] = useState(false);
   
-  // FILTRI AGGIUNTIVI
   const [selectedCategoriesAdmin, setSelectedCategoriesAdmin] = useState<string[]>([]);
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [dynamicFilters, setDynamicFilters] = useState<Record<string, string>>({});
@@ -105,7 +103,6 @@ export default function CampusMap() {
   
   const [clusters, setClusters] = useState<any[]>([]);
 
-  // 1. Geolocalizzazione iniziale con blocco dello spinner
   useEffect(() => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -136,7 +133,6 @@ export default function CampusMap() {
     }
   }, [focusCampusId]);
 
-  // 2. Caricamento Campus e Categorie + Logica di auto-selezione basata sul perimetro (Geo-fencing)
   useEffect(() => {
     if (user) {
       const fetchStaticData = async () => {
@@ -153,7 +149,6 @@ export default function CampusMap() {
             if (focusCampusId && realCampuses.some((c: any) => c.id === focusCampusId)) {
               setSelectedCampus(focusCampusId);
             } else if (userLocation) {
-              // Verifica automatica se l'utente si trova all'interno di un perimetro campus
               const matchedCampus = realCampuses.find((c: any) => {
                 if (c.geometry && c.geometry.type === 'Polygon' && c.geometry.coordinates) {
                   return isPointInPolygon([userLocation.longitude, userLocation.latitude], c.geometry.coordinates);
@@ -179,12 +174,10 @@ export default function CampusMap() {
     }
   }, [user, token, focusCampusId, userLocation]);
 
-  // Gestione Reset Filtri Dinamici al cambio categoria
   useEffect(() => {
     setDynamicFilters({});
   }, [selectedCategoriesAdmin]);
 
-  // 3. Recupero Asset con protezione contro le race conditions
   useEffect(() => {
     let isActive = true;
 
@@ -374,9 +367,8 @@ export default function CampusMap() {
   }, [assets, viewState, supercluster, maxBounds]);
 
   return (
-    <div className="flex flex-col h-[750px] w-full relative mb-10">
+    <div className="flex flex-col h-[calc(100vh-100px)] w-full relative mb-10 overflow-hidden">
       
-      {/* SPINNER DI CARICAMENTO INIZIALE GPS */}
       {isInitializingLocation && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm transition-all">
           <div className="h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-blue-600 mb-3"></div>
@@ -384,11 +376,11 @@ export default function CampusMap() {
         </div>
       )}
 
+      {/* Rimosso l'overflow-y-auto dal contenitore principale dei filtri per permettere alle tendine dropdown di fuoriuscire liberamente */}
       {campuses.length > 0 && (
-        <div className="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0">
+        <div className="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-800 shrink-0 z-10">
           <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-2' : ''} gap-6`}>
             
-            {/* FILTRO CAMPUS (Singolo) */}
             <div className="relative">
               <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Filtro Campus
@@ -409,12 +401,9 @@ export default function CampusMap() {
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setIsCampusDropdownOpen(false)}></div>
                   <div className="absolute z-20 w-full left-0 mt-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl max-h-64 overflow-y-auto animate-fade-in-up">
-                    
-                    {/* Opzione segnaposto non cliccabile */}
                     <div className="px-4 py-3 h-12 flex items-center text-sm text-slate-400 dark:text-slate-500 italic bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-700 select-none">
                       Seleziona un campus...
                     </div>
-
                     {campuses.map((campus) => (
                       <div 
                         key={campus.id} 
@@ -485,30 +474,27 @@ export default function CampusMap() {
             )}
           </div>
 
-          {/* FILTRI DINAMICI SUDDIVISI PER CATEGORIA */}
-        {/* FILTRI DINAMICI COMPATTI PER CATEGORIA */}
+        {/* L'overflow-y-auto è ora applicato SOLO alla sezione dei filtri dinamici */}
         {activeCategoriesForFilters.length > 0 && activeCategoriesForFilters.some(cat => cat.attributes?.some((attr: any) => attr.filterable && attr.status !== 'unavailable')) && (
           <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700 flex flex-col gap-2.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Filtri Specifici per Categoria
             </span>
             
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-start gap-4 max-h-[25vh] overflow-y-auto pr-2 custom-scrollbar">
               {activeCategoriesForFilters.map(cat => {
                 const catAttributes = cat.attributes?.filter((attr: any) => attr.filterable && attr.status !== 'unavailable') || [];
                 if (catAttributes.length === 0) return null;
 
                 return (
-                  <div key={cat._id} className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
-                    {/* Badge Categoria */}
-                    <div className="flex items-center gap-1.5 pr-2 border-r border-slate-200 dark:border-slate-700">
+                  <div key={cat._id} className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 w-full">
+                    <div className="flex items-center gap-1.5 pr-2 border-r border-slate-200 dark:border-slate-700 shrink-0">
                       <span className="text-sm">{cat.icon || '📌'}</span>
                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase">
                         {cat.name}
                       </span>
                     </div>
 
-                    {/* Controlli compatti */}
                     <div className="flex flex-wrap items-center gap-3">
                       {catAttributes.map((attr: any) => (
                         <div key={attr.name} className="flex items-center gap-1.5">
@@ -556,6 +542,7 @@ export default function CampusMap() {
         </div>
       )}
 
+      {/* Contenitore Mappa: occupa tutto lo spazio rimanente */}
       <div className="relative flex-1 w-full overflow-hidden border rounded-xl border-stroke shadow-default dark:border-strokedark dark:bg-boxdark">
         <Map 
           ref={mapRef} 
