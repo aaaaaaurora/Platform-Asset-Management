@@ -639,8 +639,8 @@ export default function AssetList() {
                           
                           {attr.type === 'enum' ? (
                             <select 
-                              value={dynamicFilters[attr.name] || ''}
-                              onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                              value={dynamicFilters[`${cat._id}_${attr.name}`] || ''}
+                              onChange={(e) => handleDynamicFilterChange(`${cat._id}_${attr.name}`, e.target.value)}
                               className="rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
                             >
                               <option value="">Tutti</option>
@@ -648,8 +648,8 @@ export default function AssetList() {
                             </select>
                           ) : attr.type === 'boolean' ? (
                              <select 
-                              value={dynamicFilters[attr.name] || ''}
-                              onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                              value={dynamicFilters[`${cat._id}_${attr.name}`] || ''}
+                              onChange={(e) => handleDynamicFilterChange(`${cat._id}_${attr.name}`, e.target.value)}
                               className="rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
                             >
                               <option value="">Tutti</option>
@@ -659,8 +659,8 @@ export default function AssetList() {
                           ) : (
                             <input 
                               type={attr.type === 'number' ? 'number' : 'text'}
-                              value={dynamicFilters[attr.name] || ''}
-                              onChange={(e) => handleDynamicFilterChange(attr.name, e.target.value)}
+                              value={dynamicFilters[`${cat._id}_${attr.name}`] || ''}
+                              onChange={(e) => handleDynamicFilterChange(`${cat._id}_${attr.name}`, e.target.value)}
                               placeholder="Cerca..."
                               className="w-28 rounded border border-slate-300 bg-white dark:bg-slate-800 px-2 py-1 text-xs text-slate-800 dark:text-white outline-none focus:border-blue-500"
                             />
