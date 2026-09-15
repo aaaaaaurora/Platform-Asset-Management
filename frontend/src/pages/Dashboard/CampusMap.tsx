@@ -7,7 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import WarningFormModal from '../../components/guest/WarningFormModal';
 import Supercluster from 'supercluster';
 
-// Funzione ausiliaria per verificare se un punto [lng, lat] si trova dentro un poligono GeoJSON (Ray-casting algorithm)
+// Funzione ausiliaria per verificare se un punto [lng, lat] si trova dentro un poligono GeoJSON 
 function isPointInPolygon(point: [number, number], polygonCoords: number[][][]) {
   const [x, y] = point;
   let inside = false;
