@@ -26,13 +26,10 @@ Progetto di tesi del Corso di Laurea Magistrale in **Ingegneria Informatica** �
 14. [Guida rapida ai test funzionali](#14-guida-rapida-ai-test-funzionali)
 15. [Installazione dell'app mobile](#15-installazione-dellapp-mobile)
 16. [Riferimento API](#16-riferimento-api)
-17. [Attributi di qualità e tattiche architetturali](#17-attributi-di-qualità-e-tattiche-architetturali)
-18. [Testing](#18-testing)
-19. [Sviluppo locale](#19-sviluppo-locale)
-20. [Configurazione e gestione dei segreti](#20-configurazione-e-gestione-dei-segreti)
-21. [Documentazione di progetto e scostamenti dal design](#21-documentazione-di-progetto-e-scostamenti-dal-design)
-22. [Note e limitazioni](#22-note-e-limitazioni)
-23. [Licenza e contatti](#23-licenza-e-contatti)
+17. [Sviluppo locale](#19-sviluppo-locale)
+18. [Configurazione e gestione dei segreti](#20-configurazione-e-gestione-dei-segreti)
+19. [Note e limitazioni](#22-note-e-limitazioni)
+20. [Licenza e contatti](#23-licenza-e-contatti)
 
 ---
 
@@ -440,7 +437,7 @@ Accedi con **qualsiasi account Google standard**: il profilo Utente Base viene c
 
 ### 13.3 App Mobile – Operatore
 1. Dalla dashboard Amministratore (`/admin/operators`) crea un **profilo Operatore** (e-mail, campus e categoria assegnati).
-2. Installa l'APK ([sezione 15](#15-installazione-dellapp-mobile)).
+2. Installa l'APK ([sezione 14](#14-installazione-dellapp-mobile)).
 3. Accedi con l'account Google dell'e-mail registrata e completa la 2FA.
 
 ### Endpoint utili
@@ -545,7 +542,7 @@ pip install -r requirements.txt
 PYTHONPATH=.:.. pytest tests/test_unit.py -p no:cacheprovider
 ```
 
-Alcuni test richiedono un database raggiungibile con l'`DATABASE_URL` opportuna (vedi [sezione 19](#19-sviluppo-locale)).
+Alcuni test richiedono un database raggiungibile con l'`DATABASE_URL` opportuna (vedi [sezione 17](#17-sviluppo-locale)).
 
 ---
 
