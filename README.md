@@ -453,27 +453,7 @@ Accedi con **qualsiasi account Google standard**: il profilo Utente Base viene c
 
 ---
 
-## 14. Guida rapida ai test funzionali
-
-| # | Attore | Azione | Esito atteso |
-|---|---|---|---|
-| 1 | Amministratore | Login Google + 2FA | Accesso alla dashboard |
-| 2 | Amministratore | Registra un nuovo campus (`/admin/campus/new`) | Anteprima del perimetro e salvataggio |
-| 3 | Amministratore | Crea una categoria (es. *Palo della luce*, *Albero*) con attributi di tipi diversi | Categoria subito disponibile nei menu |
-| 4 | Amministratore | Crea un profilo Operatore con campus e categoria | Profilo registrato |
-| 5 | Operatore | Login sull'app mobile, concede GPS e fotocamera | Mappa centrata sul campus |
-| 6 | Operatore | Censisce un asset: categoria → GPS → foto → suggerimenti AI → validazione | Asset salvato e visibile in mappa |
-| 7 | Guest | Seleziona un asset sulla mappa e invia una segnalazione | Conferma di invio |
-| 8 | Operatore | Apre le segnalazioni, interviene, aggiunge nota e chiude | Segnalazione rimossa dalle attive |
-| 9 | Operatore | Modifica gli attributi di un asset | Nuova voce nello storico |
-| 10 | Amministratore | Imposta un attributo su "Unavailable" | Nascosto nei form, visibile nello storico |
-| 11 | Amministratore | Consulta dashboard e storico, esporta il CSV | KPI corretti, file CSV filtrato |
-
-**Casi limite:** login Google annullato; codice 2FA errato/scaduto; segnalazione con nota vuota; permessi GPS/fotocamera negati; servizio AI non raggiungibile (form vuoto); Operatore senza campus (nessun dato); accesso a risorse di un altro campus (`403`); e-mail Operatore già presente (`409`).
-
----
-
-## 15. Installazione dell'app mobile
+## 14. Installazione dell'app mobile
 
 APK nel ramo **`feature/mobile-app-conversion`**:
 
@@ -494,7 +474,7 @@ In alternativa trasferire il file sullo smartphone e aprirlo, abilitando l'insta
 
 ---
 
-## 16. Riferimento API
+## 15. Riferimento API
 
 Le richieste dei client passano dal Gateway con il formato **`/api/<servizio>/<percorso-del-servizio>`** e l'header `Authorization: Bearer <JWT>`. Esempi:
 
@@ -540,23 +520,7 @@ Ogni servizio dispone anche di una **collection Postman** in `<servizio>/tests/*
 
 ---
 
-## 17. Attributi di qualità e tattiche architetturali
-
-Architettura guidata dalla metodologia **Attribute-Driven Design (ADD)** con scenari di qualità misurabili.
-
-| Attributo | Obiettivo | Tattiche principali |
-|---|---|---|
-| **Disponibilità** | Continuità operativa (target 99.9%) | Health check/heartbeat, Exception Detection, Active Redundancy (repliche di Gateway, Auth, Asset e Frontend), Reconfiguration, Retry con backoff, Graceful Degradation, Removal from Service, Circuit Breaker sull'AI |
-| **Modificabilità** | Estendere il dominio a runtime senza modificare il codice | Split Module, Encapsulate, Restrict Dependencies (Database-per-Service), Use an Intermediary (RabbitMQ), parametrizzazione a runtime |
-| **Usabilità** | Segnalazione in < 2 min e ≤ 4 click | Maintain System/Task Model, Cancel/Undo, MVVM, programmazione asincrona |
-| **Sicurezza** | Isolamento multi-campus | Authenticate/Authorize Actors (JWT + RBAC), Validate Input, Encrypt Data, Audit immutabile |
-| **Performance** | Mappa con > 5.000 asset in < 3 s | Concurrency, Manage Event Rate (eventi asincroni), Prioritize Events, scaling orizzontale, paginazione e risposte GeoJSON |
-| **Testabilità** | Test unitari rapidi e isolati (> 85% di coverage sul modulo di validazione) | Sandbox effimera, Abstract Data Sources (mocking), Executable Assertions, Dependency Injection (`DATABASE_URL`) |
-| **Integrabilità** | Export standard e interoperabile | Service Discovery K8s, Use an Intermediary, Orchestrate, esportazione CSV UTF-8 |
-
----
-
-## 18. Testing
+## 16. Testing
 
 Ogni servizio ha la cartella `tests/` con:
 
@@ -585,7 +549,7 @@ Alcuni test richiedono un database raggiungibile con l'`DATABASE_URL` opportuna 
 
 ---
 
-## 19. Sviluppo locale
+## 17. Sviluppo locale
 
 ### Prerequisiti
 - Docker; Python 3.9+; Node.js 18+ (consigliato 20+) e npm
@@ -635,7 +599,7 @@ Vedi [sezione 11](#deployment-manuale).
 
 ---
 
-## 20. Configurazione e gestione dei segreti
+## 18. Configurazione e gestione dei segreti
 
 - I parametri sensibili (chiave JWT, password dei database, credenziali MinIO e RabbitMQ, stringhe di connessione) sono definiti nel Secret Kubernetes `app-secrets` (`k8s/secrets.yaml`) e letti dai Deployment tramite `secretKeyRef`.
 - I file di configurazione presenti nel repository (`k8s/secrets.yaml`, `frontend/.env`, `auth-service/client_secret.json`) sono pensati per l'**ambiente dimostrativo** di dipartimento.
@@ -644,29 +608,7 @@ Vedi [sezione 11](#deployment-manuale).
 
 ---
 
-## 21. Documentazione di progetto e scostamenti dal design
-
-| Documento | Contenuto |
-|---|---|
-| **Tesi** | Descrizione complessiva del lavoro |
-| **SRS** – Software Requirements Specification | 7 Epiche e User Stories con criteri di accettazione, flussi BPMN, casi d'uso, attributi di qualità, vincoli |
-| **SDA** – Software Design Architecture | Vista logica (C4, interfacce), vista dei dati, deployment, tattiche di qualità, pipeline CI/CD |
-
-**Vincoli di progetto (SRS):** microservizi con API REST/HTTPS, segregazione dei dati per campus, approccio API-First, due client distinti (mobile e web), backend Python, frontend React, MapLibre GL JS, RabbitMQ, Docker + Kubernetes, Git, CI/CD con testing automatico, Kanban su ClickUp.
-
-**Dove l'implementazione si discosta dalla documentazione di progetto**
-
-| Tema | SDA | Implementazione nel repository |
-|---|---|---|
-| API Gateway | Gateway con API Composition e `correlation_id` | Gateway Flask che valida il JWT, propaga gli header `X-User-*` e fa da reverse proxy |
-| Exchange RabbitMQ | `system.events` | Exchange `system_events` di tipo fanout |
-| Endpoint | Percorsi indicativi (`/logs/history`, `/geozones`, `/warnings/{id}/resolve`…) | Percorsi effettivi nella [sezione 16](#16-riferimento-api) (es. `/api/logs`, `/api/geozones/campuses`) |
-| Stati segnalazione | `aperta`, `chiusa` | Presente anche `annullata` |
-| Frontend | React | React con TypeScript, base TailAdmin |
-
----
-
-## 22. Note e limitazioni
+## 19. Note e limitazioni
 
 - L'addestramento dei modelli di Computer Vision è **fuori dallo scopo**: l'AI è un servizio esterno.
 - L'APK fornito è una build **debug** a scopo dimostrativo.
@@ -676,7 +618,7 @@ Vedi [sezione 11](#deployment-manuale).
 
 ---
 
-## 23. Licenza e contatti
+## 20. Licenza e contatti
 
 Progetto accademico sviluppato presso il **Dipartimento di Ingegneria dell'Informazione ed Elettrica e Matematica Applicata (DIEM) – Università degli Studi di Salerno**.
 
@@ -685,4 +627,4 @@ La parte di interfaccia basata su **TailAdmin React** è distribuita con licenza
 | | |
 |---|---|
 | **Aurora Campione** | a.campione5@studenti.unisa.it |
-| **Claudia Carucci** | – |
+| **Claudia Carucci** | c.carucci2@studenti.unisa.it |
